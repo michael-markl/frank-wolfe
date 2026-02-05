@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 priority-queue = "2.7.0"
 rayon = "1.11.0"
+rustc-hash = "2.1.1"

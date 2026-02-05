@@ -1,0 +1,53 @@
+use std::mem;
+
+use crate::{
+    common::{BundleIdx, PermitIdx},
+    index::Index,
+    iter::{dedup::Dedup, filter_sorted::SortedFilter, merge_sorted::merge_sorted},
+};
+
+#[derive(PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct Bundle([PermitIdx]);
+
+impl Bundle {
+    pub fn empty() -> Box<Bundle> {
+        Bundle::new(Box::new([]))
+    }
+
+    fn new(boxed_slice: Box<[PermitIdx]>) -> Box<Self> {
+        unsafe { mem::transmute(boxed_slice) }
+    }
+
+    pub fn from_permits(mut permits: Vec<PermitIdx>) -> Box<Bundle> {
+        permits.sort_unstable();
+        permits.dedup();
+        Bundle::new(permits.into_boxed_slice())
+    }
+
+    pub fn union_count(&self, other: &Bundle) -> usize {
+        merge_sorted(self.0.iter(), other.0.iter()).dedup().count()
+    }
+
+    pub fn union(&self, other: &Bundle) -> Box<Bundle> {
+        let count = self.union_count(other);
+
+        let mut array = Box::new_uninit_slice(count);
+
+        merge_sorted(self.0.iter(), other.0.iter())
+            .dedup()
+            .zip(array.iter_mut())
+            .for_each(|(permit, slot)| {
+                slot.write(*permit);
+            });
+        let boxed_slice = unsafe { array.assume_init() };
+
+        Bundle::new(boxed_slice)
+    }
+
+    pub fn set_minus_iter<'a>(&'a self, other: &'a Bundle) -> impl Iterator<Item = &'a PermitIdx> {
+        self.0.iter().sorted_filter(other.0.iter())
+    }
+}
+
+pub type BundleIndex<'a> = Index<'a, BundleIdx, Bundle>;

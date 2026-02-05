@@ -1,11 +1,11 @@
-#![feature(alloc_layout_extra)]
-#![feature(ptr_metadata)]
-
-
 mod astar;
-mod frank_wolfe;
-mod common;
+mod astar_tree;
+mod bundle_index;
 mod col;
+mod common;
+mod frank_wolfe;
+mod index;
+mod iter;
 
 fn main() {
     println!("Hello, world!");
