@@ -9,7 +9,7 @@ use crate::{
     astar::{AStarTable, GraphOps},
     bundle_index::BundleIndex,
     col::{HashMap, map_new},
-    common::{BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, NodeIdx, PermitIdx},
+    common::{BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, NodeIdx, PermitIdx}, demand::DemandOps,
 };
 
 pub trait ShortestPathCostOps {
@@ -91,11 +91,12 @@ impl AStarTree {
         &mut self,
         table: &AStarTable,
         graph: &impl GraphOps,
+        demand: &impl DemandOps,
         costs: &impl ShortestPathCostOps,
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
-        let destination_node_idx = graph.node_idx_by_destination(destination_idx);
+        let destination_node_idx = demand.node_idx_by_destination(destination_idx);
 
         if destination_node_idx == self.source_idx {
             return 0.0;
@@ -152,8 +153,8 @@ impl AStarTree {
                     // TODO: Handle empty set more efficiently.
 
                     let guard = bundles.read().unwrap();
-                    let edge_bundle = guard.get_by_idx(edge_bundle_idx);
-                    let current_bundle = guard.get_by_idx(bundle_idx);
+                    let edge_bundle = guard.get_payload(edge_bundle_idx);
+                    let current_bundle = guard.get_payload(bundle_idx);
                     let mut additional_permits_cost = 0.0;
                     for permit in edge_bundle.set_minus_iter(current_bundle) {
                         additional_permits_cost += costs.get_permit_cost(*permit);

@@ -21,8 +21,12 @@ impl<'a, Idx: Copy + Into<usize> + From<usize>, Payload: Eq + Hash + ?Sized>
     pub fn find_idx(&self, element: &Payload) -> Option<Idx> {
         self.by_idx.get(element).copied()
     }
+    
+    pub fn find_payload(&self, idx: Idx) -> Option<&Payload> {
+        self.elements.get(idx.into()).map(|boxed| boxed.as_ref())
+    }
 
-    pub fn get_by_idx(&self, idx: Idx) -> &Payload {
+    pub fn get_payload(&self, idx: Idx) -> &Payload {
         &self.elements[Idx::into(idx)]
     }
 

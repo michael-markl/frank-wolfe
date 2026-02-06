@@ -5,8 +5,7 @@ use rayon::{
 };
 
 use crate::{
-    col::{HashMap, HashSet, map_new, set_new},
-    common::{BundleIdx, Float},
+    col::{HashMap, HashSet, map_new, set_new}, common::{BundleIdx, Float}, demand::DemandOps, graph_ops::GraphOps
 };
 
 type NodeIdx = usize;
@@ -21,24 +20,6 @@ pub struct AStarTable {
     distances: Vec<Float>,
 }
 
-pub trait GraphOps {
-    fn node_idx_by_destination(&self, destination_idx: DestinationIdx) -> NodeIdx;
-
-    fn incoming_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;
-
-    fn outgoing_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;
-
-    fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float;
-
-    fn edge_tail(&self, edge_idx: EdgeIdx) -> NodeIdx;
-
-    fn edge_head(&self, edge_idx: EdgeIdx) -> NodeIdx;
-
-    fn edge_bundle(&self, edge_idx: EdgeIdx) -> BundleIdx;
-
-    fn node_allows_through_traffic(&self, node_idx: NodeIdx) -> bool;
-}
-
 impl AStarTable {
     pub fn create(num_nodes: NodeIdx, num_destinations: NodeIdx) -> AStarTable {
         AStarTable {
@@ -47,12 +28,12 @@ impl AStarTable {
         }
     }
 
-    pub fn fill_table(&mut self, graph: &(impl GraphOps + Sync)) {
+    pub fn fill_table(&mut self, graph: &(impl GraphOps + Sync), demand: &(impl DemandOps + Sync)) {
         self.distances
             .par_chunks_exact_mut(self.num_nodes)
             .enumerate()
             .for_each(|(destination_idx, distances)| {
-                fill_row(graph, distances, destination_idx);
+                fill_row(graph, demand, distances, destination_idx);
             });
     }
 
@@ -61,13 +42,13 @@ impl AStarTable {
     }
 }
 
-fn fill_row(graph: &impl GraphOps, distances: &mut [Float], destination_idx: DestinationIdx) {
+fn fill_row(graph: &impl GraphOps, demand: &impl DemandOps, distances: &mut [Float], destination_idx: DestinationIdx) {
     // Use Float::MAX as earliest arrival for nodes not reaching the destination.
     for it in distances.iter_mut() {
         *it = Float::MAX;
     }
 
-    let destination_node_idx = graph.node_idx_by_destination(destination_idx);
+    let destination_node_idx = demand.node_idx_by_destination(destination_idx);
 
     #[derive(PartialOrd)]
     struct QueueValue {
