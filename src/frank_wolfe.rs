@@ -32,16 +32,11 @@ pub trait SolutionOps: Clone {
 }
 
 pub trait ConvexProgramInstance<Solution: SolutionOps> {
-    /// The function type
-    type Function;
-
-    /// Given a solution, computes the gradient of the function at that point
-    fn gradient(&self, solution: &Solution) -> Solution;
-
     /// Given a solution x and a direction v, computes the directional derivative of the function at x along v,
     /// i.e., <grad f(x), v>
     fn directional_derivative(&self, at: &Solution, direction: &Solution) -> Float;
 
+    /// Computes the objective value f(x).
     fn compute_objective(&self, solution: &Solution) -> Float;
 
     /// Solves the linearized problem at the given gradient to get a search direction
@@ -232,15 +227,6 @@ mod tests {
         struct SimpleInstance;
 
         impl ConvexProgramInstance<SimpleSolution> for SimpleInstance {
-            type Function = ();
-
-            fn gradient(&self, solution: &SimpleSolution) -> SimpleSolution {
-                SimpleSolution {
-                    x: 2.0 * solution.x,
-                    y: 2.0 * solution.y,
-                }
-            }
-
             fn directional_derivative(
                 &self,
                 at: &SimpleSolution,
