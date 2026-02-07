@@ -1,27 +1,28 @@
-use crate::{common::{BundleIdx, EdgeIdx, Float, NodeIdx}, graph_ops::GraphOps};
+use crate::{
+    common::{BundleIdx, EdgeIdx, Float, NodeIdx},
+    graph_ops::GraphOps,
+};
 
-
-pub enum LpfMode {
+pub enum EdgeMode {
     Constant,
     BPR,
     OP,
 }
 
 pub struct EdgeParams {
-    pub mode: LpfMode,
+    pub mode: EdgeMode,
     pub param1: Float,
     pub param2: Float,
     pub param3: Float,
     pub length: Float,
 }
 
-
 pub struct Edge {
     tail: NodeIdx,
     head: NodeIdx,
     bundle: BundleIdx,
-    
-    lpf_params: EdgeParams,
+
+    edge_params: EdgeParams,
 }
 
 pub struct Node {
@@ -30,14 +31,12 @@ pub struct Node {
     allows_through_traffic: bool,
 }
 
-
-
 /// A directed multi-graph.
-/// 
+///
 /// Nodes are indexed from 0 to num_nodes - 1, edges are indexed from 0 to num_edges - 1.
 /// We allow multiple edges to share both tail and head nodes (i.e. parallel edges).
 /// We allow loops.
-/// 
+///
 /// INVARIANT: All edge and node indices in the graph are within bounds.
 /// INVARIANT: nodes[i].incoming_edges and nodes[i].outgoing_edges contain exactly the indices of edges with head or tail i, respectively.
 pub struct Graph {
@@ -63,7 +62,13 @@ impl Graph {
         node_idx
     }
 
-    pub fn add_edge(&mut self, tail: NodeIdx, head: NodeIdx, bundle: BundleIdx, lpf_params: EdgeParams) -> Result<EdgeIdx, String> {
+    pub fn add_edge(
+        &mut self,
+        tail: NodeIdx,
+        head: NodeIdx,
+        bundle: BundleIdx,
+        edge_params: EdgeParams,
+    ) -> Result<EdgeIdx, String> {
         if tail >= self.nodes.len() {
             return Err(format!(
                 "Tail node index {} out of bounds (num nodes: {})",
@@ -83,7 +88,7 @@ impl Graph {
             tail,
             head,
             bundle,
-            lpf_params,
+            edge_params,
         });
         self.nodes[tail].outgoing_edges.push(edge_idx);
         self.nodes[head].incoming_edges.push(edge_idx);
@@ -106,13 +111,25 @@ impl Graph {
                     edge_idx, edge.head, num_nodes
                 ));
             }
-            if nodes[edge.tail].outgoing_edges.iter().filter(|&&idx| idx == edge_idx).count() != 1 {
+            if nodes[edge.tail]
+                .outgoing_edges
+                .iter()
+                .filter(|&&idx| idx == edge_idx)
+                .count()
+                != 1
+            {
                 return Err(format!(
                     "Edge {} is not listed exactly once in outgoing edges of its tail node {}",
                     edge_idx, edge.tail
                 ));
             }
-            if nodes[edge.head].incoming_edges.iter().filter(|&&idx| idx == edge_idx).count() != 1 {
+            if nodes[edge.head]
+                .incoming_edges
+                .iter()
+                .filter(|&&idx| idx == edge_idx)
+                .count()
+                != 1
+            {
                 return Err(format!(
                     "Edge {} is not listed exactly once in incoming edges of its head node {}",
                     edge_idx, edge.head
@@ -181,6 +198,14 @@ impl GraphOps for Graph {
     }
 
     fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
-        todo!()
+        self.edges[edge_idx].edge_params.param1
+    }
+
+    fn num_edges(&self) -> usize {
+        self.edges.len()
+    }
+
+    fn num_nodes(&self) -> usize {
+        self.nodes.len()
     }
 }

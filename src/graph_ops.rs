@@ -1,8 +1,10 @@
 use crate::common::{BundleIdx, EdgeIdx, Float, NodeIdx};
 
-
-
 pub trait GraphOps {
+    fn num_edges(&self) -> usize;
+
+    fn num_nodes(&self) -> usize;
+
     fn incoming_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;
 
     fn outgoing_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;

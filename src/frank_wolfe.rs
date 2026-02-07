@@ -25,9 +25,6 @@ pub trait SolutionOps: Clone {
     /// Adds scaled version of other to self: self += scale * other
     fn add_scaled(&mut self, scale: Float, other: &Self);
 
-    /// Creates an empty solution (zero vector)
-    fn empty() -> Self;
-
     fn inner_prod(&self, other: &Self) -> Float;
 }
 
@@ -84,11 +81,25 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
         return 1.0;
     }
 
-    let mut mid_sol = Solution::empty();
+    let mut mid_sol: Option<Solution> = None;
 
     for _ in 0..line_search_max_iters {
         let mid_alpha = 0.5 * (low_alpha + high_alpha);
-        mid_sol.assign_linear_combination(initial, mid_alpha, direction);
+        let mid_sol = if mid_sol.is_none() {
+            mid_sol = Some(Solution::from_linear_combination(
+                &low_sol,
+                mid_alpha - low_alpha,
+                &high_sol,
+            ));
+            mid_sol.as_mut().unwrap()
+        } else {
+            mid_sol.as_mut().unwrap().assign_linear_combination(
+                &low_sol,
+                mid_alpha - low_alpha,
+                &high_sol,
+            );
+            mid_sol.as_mut().unwrap()
+        };
         let mid_deriv = instance.directional_derivative(&mid_sol, direction);
 
         if mid_deriv.abs() < derivative_zero_tol {
@@ -97,10 +108,10 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
 
         if mid_deriv > 0.0 {
             high_alpha = mid_alpha;
-            swap(&mut high_sol, &mut mid_sol);
+            swap(&mut high_sol, mid_sol);
         } else {
             low_alpha = mid_alpha;
-            swap(&mut low_sol, &mut mid_sol);
+            swap(&mut low_sol, mid_sol);
         }
     }
 

@@ -1,15 +1,14 @@
-use std::{
-    collections::hash_map::Entry,
-    sync::{RwLock, RwLockReadGuard},
-};
+use std::{collections::hash_map::Entry, sync::RwLock};
 
 use priority_queue::PriorityQueue;
 
 use crate::{
-    astar::{AStarTable, GraphOps},
+    astar::AStarTable,
     bundle_index::BundleIndex,
     col::{HashMap, map_new},
-    common::{BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, NodeIdx, PermitIdx}, demand::DemandOps,
+    common::{BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, NodeIdx, PermitIdx},
+    demand::DemandOps,
+    graph_ops::GraphOps,
 };
 
 pub trait ShortestPathCostOps {
@@ -18,6 +17,7 @@ pub trait ShortestPathCostOps {
     fn get_permit_cost(&self, permit_idx: PermitIdx) -> Float;
 }
 
+#[derive(Debug)]
 struct Predecessor {
     previous_bundle_idx: BundleIdx,
     edge_idx: EdgeIdx,
@@ -28,7 +28,7 @@ struct AStarTreeDistanceEntry {
     cheapest: BundleIdx,
 }
 
-struct AStarTree {
+pub struct AStarTree {
     source_idx: NodeIdx,
     /// distances[w][B] is the cost of a minimum s-w-path p, including the bundle cost, among paths p that require exactly the permits in bundle B.
     distances: HashMap<NodeIdx, AStarTreeDistanceEntry>,
@@ -46,18 +46,18 @@ struct TreeEntry {
     predecessor: Option<Predecessor>,
 }
 
-impl PartialOrd for TreeEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl Ord for TreeEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reverse order for min-heap
         other
             .cost_estimate_to_destination
             .total_cmp(&self.cost_estimate_to_destination)
+    }
+}
+
+impl PartialOrd for TreeEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -87,6 +87,24 @@ impl AStarTree {
         }
     }
 
+    fn thru_aware_lower_bound(
+        source_idx: NodeIdx,
+        table: &AStarTable,
+        node_idx: NodeIdx,
+        destination_node_idx: NodeIdx,
+        destination_idx: DestinationIdx,
+        graph: &impl GraphOps,
+    ) -> Float {
+        if node_idx == source_idx
+            || node_idx == destination_node_idx
+            || graph.node_allows_through_traffic(node_idx)
+        {
+            table.get_lower_bound(node_idx, destination_idx)
+        } else {
+            Float::MAX
+        }
+    }
+
     pub fn compute_distance(
         &mut self,
         table: &AStarTable,
@@ -112,12 +130,32 @@ impl AStarTree {
             self.queue
                 .iter_mut()
                 .for_each(|((node_idx, _bundle_idx), entry)| {
-                    let lower_bound = table.get_lower_bound(*node_idx, destination_idx);
+                    let lower_bound = Self::thru_aware_lower_bound(
+                        self.source_idx,
+                        table,
+                        *node_idx,
+                        destination_node_idx,
+                        destination_idx,
+                        graph,
+                    );
                     entry.cost_estimate_to_destination = entry.max_cost_from_source + lower_bound;
                 });
         }
 
         while let Some(((node_idx, bundle_idx), entry)) = self.queue.pop() {
+            let pred_node = entry
+                .predecessor
+                .as_ref()
+                .map(|pred| graph.edge_tail(pred.edge_idx));
+            assert!(
+                pred_node
+                    .iter()
+                    .all(|it| it == &self.source_idx || graph.node_allows_through_traffic(*it)),
+                "Predecessor nodes must allow through traffic, but found predecessor node {} for node {}, which does not allow through traffic",
+                pred_node.unwrap_or(usize::MAX),
+                node_idx
+            );
+
             // Update self.distances.
             if node_idx != self.source_idx {
                 let predecessor = entry
@@ -135,20 +173,37 @@ impl AStarTree {
                     }
                     Entry::Occupied(mut occupied) => {
                         let distance_entry = occupied.get_mut();
-                        distance_entry
+                        let previous = distance_entry
                             .by_bundle
                             .insert(bundle_idx, (entry.max_cost_from_source, predecessor));
+                        debug_assert!(
+                            previous.is_none(),
+                            "Node {} was reached multiple times with the same bundle idx {}, which should not happen in A*: {:?}",
+                            node_idx,
+                            bundle_idx,
+                            distance_entry.by_bundle
+                        );
                         assert!(
                             distance_entry.by_bundle[&distance_entry.cheapest].0
-                                < entry.max_cost_from_source
+                                <= entry.max_cost_from_source,
+                            "New path to node {} with bundle idx {} has higher cost than existing path with bundle idx {}: {} > {}",
+                            node_idx,
+                            bundle_idx,
+                            distance_entry.cheapest,
+                            entry.max_cost_from_source,
+                            distance_entry.by_bundle[&distance_entry.cheapest].0
                         );
                     }
                 }
             }
 
             // Enqueue neighbors.
-            if graph.node_allows_through_traffic(node_idx) {
+            if node_idx == self.source_idx || graph.node_allows_through_traffic(node_idx) {
                 for edge_idx in graph.outgoing_edges(node_idx) {
+                    let head = graph.edge_head(edge_idx);
+                    if head == self.source_idx {
+                        continue;
+                    }
                     let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
                     // TODO: Handle empty set more efficiently.
 
@@ -170,13 +225,36 @@ impl AStarTree {
                     let new_max_cost_from_source =
                         entry.max_cost_from_source + edge_cost + additional_permits_cost;
 
-                    let head = graph.edge_head(edge_idx);
+                    if let Some(existing_entry) = self
+                        .distances
+                        .get(&head)
+                        .map(|it| it.by_bundle.get(&new_bundle_idx))
+                        .flatten()
+                    {
+                        debug_assert!(
+                            existing_entry.0 <= new_max_cost_from_source,
+                            "New path to node {} with bundle idx {} has higher cost than existing path with same bundle idx: {} > {}",
+                            head,
+                            new_bundle_idx,
+                            new_max_cost_from_source,
+                            existing_entry.0
+                        );
+                        continue;
+                    }
+
                     self.queue.push_increase(
                         (head, new_bundle_idx),
                         TreeEntry {
                             max_cost_from_source: new_max_cost_from_source,
                             cost_estimate_to_destination: new_max_cost_from_source
-                                + table.get_lower_bound(head, destination_idx),
+                                + Self::thru_aware_lower_bound(
+                                    self.source_idx,
+                                    table,
+                                    head,
+                                    destination_node_idx,
+                                    destination_idx,
+                                    graph,
+                                ),
                             predecessor: Some(Predecessor {
                                 previous_bundle_idx: bundle_idx,
                                 edge_idx,
@@ -192,6 +270,9 @@ impl AStarTree {
             }
         }
 
-        panic!("No path found from source to destination");
+        panic!(
+            "No path found from source node {} to destination node {}, idx {}",
+            self.source_idx, destination_node_idx, destination_idx
+        );
     }
 }

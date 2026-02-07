@@ -5,12 +5,10 @@ use rayon::{
 };
 
 use crate::{
-    col::{HashMap, HashSet, map_new, set_new}, common::{BundleIdx, Float}, demand::DemandOps, graph_ops::GraphOps
+    common::{DestinationIdx, Float, NodeIdx},
+    demand::DemandOps,
+    graph_ops::GraphOps,
 };
-
-type NodeIdx = usize;
-type DestinationIdx = usize;
-type EdgeIdx = usize;
 
 pub struct AStarTable {
     num_nodes: NodeIdx,
@@ -42,7 +40,12 @@ impl AStarTable {
     }
 }
 
-fn fill_row(graph: &impl GraphOps, demand: &impl DemandOps, distances: &mut [Float], destination_idx: DestinationIdx) {
+fn fill_row(
+    graph: &impl GraphOps,
+    demand: &impl DemandOps,
+    distances: &mut [Float],
+    destination_idx: DestinationIdx,
+) {
     // Use Float::MAX as earliest arrival for nodes not reaching the destination.
     for it in distances.iter_mut() {
         *it = Float::MAX;
@@ -50,7 +53,7 @@ fn fill_row(graph: &impl GraphOps, demand: &impl DemandOps, distances: &mut [Flo
 
     let destination_node_idx = demand.node_idx_by_destination(destination_idx);
 
-    #[derive(PartialOrd)]
+    #[derive(Debug)]
     struct QueueValue {
         cost: Float,
     }
@@ -59,6 +62,12 @@ fn fill_row(graph: &impl GraphOps, demand: &impl DemandOps, distances: &mut [Flo
         fn cmp(&self, other: &Self) -> std::cmp::Ordering {
             // Reverse order for min-heap
             other.cost.total_cmp(&self.cost)
+        }
+    }
+
+    impl PartialOrd for QueueValue {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
         }
     }
 
@@ -84,7 +93,15 @@ fn fill_row(graph: &impl GraphOps, demand: &impl DemandOps, distances: &mut [Flo
                 if distances[tail_idx] != Float::MAX {
                     // Already settled
                     debug_assert!(
-                        distances[tail_idx] <= cost + graph.edge_cost_lower_bound(edge_idx)
+                        distances[tail_idx] <= cost + graph.edge_cost_lower_bound(edge_idx),
+                        "Destination {}: Lower bound costs must be consistent, but found a shorter path to node {} via edge {}: {} < {} + {} = {}",
+                        destination_idx,
+                        tail_idx,
+                        edge_idx,
+                        distances[tail_idx],
+                        cost,
+                        graph.edge_cost_lower_bound(edge_idx),
+                        cost + graph.edge_cost_lower_bound(edge_idx)
                     );
                     continue;
                 }
