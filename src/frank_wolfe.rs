@@ -101,14 +101,14 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     for _ in 0..line_search_max_iters {
         let mid_alpha = 0.5 * (low_alpha + high_alpha);
         if let Some(mid_sol1) = &mut mid_sol {
-            mid_sol1.assign_linear_combination(&initial, mid_alpha, &direction);
+            mid_sol1.assign_linear_combination(initial, mid_alpha, direction);
         } else {
             mid_sol = Some(Solution::from_linear_combination(
-                &initial, mid_alpha, &direction,
+                initial, mid_alpha, direction,
             ))
         };
         let mid_sol = mid_sol.as_mut().unwrap();
-        let mid_deriv = instance.directional_derivative(&mid_sol, direction);
+        let mid_deriv = instance.directional_derivative(mid_sol, direction);
 
         if mid_deriv.abs() < derivative_zero_tol {
             return mid_alpha;
@@ -123,7 +123,7 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
         }
     }
 
-    return 0.5 * (low_alpha + high_alpha);
+    0.5 * (low_alpha + high_alpha)
 }
 
 pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
@@ -213,7 +213,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         gap / cur_obj_val
     );
 
-    return cur_solution;
+    cur_solution
 }
 
 #[cfg(test)]

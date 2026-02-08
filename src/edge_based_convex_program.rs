@@ -161,7 +161,7 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
             .collect::<Vec<_>>();
 
         let y = self.compute_shortest_path_flow(&edge_gradient_at_x, &permit_gradient_at_x);
-        let diff = EdgeBasedSolution::from_linear_combination(&y, -1.0, &x);
+        let diff = EdgeBasedSolution::from_linear_combination(&y, -1.0, x);
         let inner_product =
             EdgeBasedSolution::from_vec(edge_gradient_at_x, permit_gradient_at_x).inner_prod(&diff);
         LinearizedSubProblemSolution {

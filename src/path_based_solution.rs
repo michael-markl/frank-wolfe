@@ -23,7 +23,7 @@ struct PathBasedSolution {
 fn compute_edge_flow(
     path_flow: &HashMap<PathIdx, (BundleIdx, Float)>,
     path_index: &PathIndex,
-    edge_flow: &mut Vec<Float>,
+    edge_flow: &mut [Float],
 ) {
     for (path_idx, (_bundle_idx, flow)) in path_flow {
         let path = path_index.get_payload(*path_idx);

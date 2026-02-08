@@ -11,12 +11,6 @@ use crate::{
     graph::{EdgeMode, EdgeParams, Graph},
 };
 
-struct TripEntry {
-    origin_id: usize,
-    destination_id: usize,
-    demand: Float,
-}
-
 pub struct TNTPNet {
     pub graph: Graph,
     pub node_idx_by_id: HashMap<usize, NodeIdx>,
@@ -147,10 +141,10 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
 
         let tail_node_idx = *node_idx_by_id
             .entry(tail_node)
-            .or_insert_with(|| graph.add_node(first_thru_node.map_or(true, |it| tail_node >= it)));
+            .or_insert_with(|| graph.add_node(first_thru_node.is_none_or(|it| tail_node >= it)));
         let head_node_idx = *node_idx_by_id
             .entry(head_node)
-            .or_insert_with(|| graph.add_node(first_thru_node.map_or(true, |it| head_node >= it)));
+            .or_insert_with(|| graph.add_node(first_thru_node.is_none_or(|it| head_node >= it)));
         let edge_params = EdgeParams {
             toll: 0.0,
             offset: 0.0,
@@ -158,7 +152,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
             alpha: free_flow_time,
             beta: b,
             gamma: capacity,
-            length: length,
+            length,
         };
         graph
             .add_edge(tail_node_idx, head_node_idx, BUNDLE_IDX_EMPTY, edge_params)
@@ -178,7 +172,7 @@ fn parse_trip_pairs(
     tntp_net: &TNTPNet,
 ) -> Result<(), String> {
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() % 3 != 0 {
+    if !parts.len().is_multiple_of(3) {
         return Err(format!("Invalid trip pairs line format: '{}'", line));
     }
     for &[destination_id, colon, demand_value] in parts.as_chunks::<3>().0 {

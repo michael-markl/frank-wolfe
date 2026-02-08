@@ -83,7 +83,7 @@ impl AStarTree {
             source_idx,
             distances: map_new(),
             destination_idx: None,
-            queue: queue,
+            queue,
         }
     }
 
@@ -260,8 +260,7 @@ impl AStarTree {
                     if let Some(existing_entry) = self
                         .distances
                         .get(&head)
-                        .map(|it| it.by_bundle.get(&new_bundle_idx))
-                        .flatten()
+                        .and_then(|it| it.by_bundle.get(&new_bundle_idx))
                     {
                         debug_assert!(
                             existing_entry.0 <= new_max_cost_from_source + 1e-8,

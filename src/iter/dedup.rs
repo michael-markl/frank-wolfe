@@ -31,7 +31,7 @@ where
     type Item = I::Item;
 
     fn next(&mut self) -> Option<I::Item> {
-        while let Some(item) = self.iter.next() {
+        for item in self.iter.by_ref() {
             if self.head.as_ref() != Some(&item) {
                 let next = self.head.replace(item);
                 return next;

@@ -60,7 +60,7 @@ impl Demand {
         });
         self.commodities_by_origin
             .entry(origin)
-            .or_insert(Vec::new())
+            .or_default()
             .push(commodity_idx);
 
         commodity_idx

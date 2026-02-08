@@ -58,9 +58,9 @@ impl Bundle {
     }
 }
 
-impl<'a> Into<Iter<'a, PermitIdx>> for &'a Bundle {
-    fn into(self) -> Iter<'a, PermitIdx> {
-        self.0.iter()
+impl<'a> From<&'a Bundle> for Iter<'a, PermitIdx> {
+    fn from(val: &'a Bundle) -> Self {
+        val.0.iter()
     }
 }
 

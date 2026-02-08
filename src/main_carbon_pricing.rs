@@ -79,7 +79,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
 
     let cordon_pricing_map = args
         .cordon_edge_map
-        .map(|it| CordonPricingMap::from_csv(it));
+        .map(CordonPricingMap::from_csv);
 
     let tolls_strategy: Box<dyn TollsStrategy> =
         if let Some(cordon_pricing_map) = &cordon_pricing_map {
@@ -144,7 +144,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         };
 
     let mut wtr = csv::Writer::from_path(&args.csv_output_path).unwrap();
-    wtr.write_record(&[
+    wtr.write_record([
         "iteration",
         "price",
         "total_travel_time",
@@ -264,7 +264,7 @@ pub fn compute_solutions_for_price_range<'a>(
             graph,
             demand,
             astar_table: &astar_table,
-            bundle_index: &bundle_index,
+            bundle_index,
         };
 
         let initial_solution = solution.take().unwrap_or_else(|| {

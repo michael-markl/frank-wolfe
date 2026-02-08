@@ -1,7 +1,6 @@
 use std::sync::RwLock;
 
 use clap::{Parser, Subcommand};
-use rayon::iter::ParallelIterator;
 
 use crate::{
     astar::AStarTable,
@@ -121,7 +120,7 @@ fn test() {
 
     // Write solution to CSV file
     let mut wtr = csv::Writer::from_path("solution.csv").unwrap();
-    wtr.write_record(&["edge_idx", "flow"]).unwrap();
+    wtr.write_record(["edge_idx", "flow"]).unwrap();
     solution
         .edge_flow()
         .iter()
