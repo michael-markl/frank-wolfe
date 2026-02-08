@@ -34,6 +34,10 @@ impl Demand {
         }
     }
 
+    pub fn commodities(&self) -> &Vec<Commodity> {
+        &self.commodities
+    }
+
     pub fn add_commodity(
         &mut self,
         origin: NodeIdx,

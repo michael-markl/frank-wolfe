@@ -152,10 +152,12 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
             .entry(head_node)
             .or_insert_with(|| graph.add_node(first_thru_node.map_or(true, |it| head_node >= it)));
         let edge_params = EdgeParams {
+            toll: 0.0,
+            offset: 0.0,
             mode: EdgeMode::BPR,
-            param1: free_flow_time,
-            param2: b,
-            param3: capacity,
+            alpha: free_flow_time,
+            beta: b,
+            gamma: capacity,
             length: length,
         };
         graph

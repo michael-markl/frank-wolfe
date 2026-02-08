@@ -1,5 +1,5 @@
 use crate::{
-    common::{BundleIdx, EdgeIdx, Float, NodeIdx},
+    common::{BundleIdx, EdgeIdx, Float, NodeIdx, PermitIdx},
     graph_ops::GraphOps,
 };
 
@@ -11,18 +11,24 @@ pub enum EdgeMode {
 
 pub struct EdgeParams {
     pub mode: EdgeMode,
-    pub param1: Float,
-    pub param2: Float,
-    pub param3: Float,
+    pub toll: Float,
+    pub offset: Float,
+    pub alpha: Float,
+    pub beta: Float,
+    pub gamma: Float,
     pub length: Float,
 }
 
 pub struct Edge {
-    tail: NodeIdx,
-    head: NodeIdx,
-    bundle: BundleIdx,
+    pub tail: NodeIdx,
+    pub head: NodeIdx,
+    pub bundle: BundleIdx,
 
-    edge_params: EdgeParams,
+    pub edge_params: EdgeParams,
+}
+
+pub struct Permit {
+    pub params: EdgeParams,
 }
 
 pub struct Node {
@@ -42,6 +48,7 @@ pub struct Node {
 pub struct Graph {
     edges: Vec<Edge>,
     nodes: Vec<Node>,
+    permits: Vec<Permit>,
 }
 
 impl Graph {
@@ -49,7 +56,28 @@ impl Graph {
         Self {
             edges: Vec::new(),
             nodes: Vec::new(),
+            permits: Vec::new(),
         }
+    }
+
+    pub fn edge(&self, edge_idx: EdgeIdx) -> &Edge {
+        &self.edges[edge_idx]
+    }
+
+    pub fn node(&self, node_idx: NodeIdx) -> &Node {
+        &self.nodes[node_idx]
+    }
+
+    pub fn permit(&self, permit_idx: PermitIdx) -> &Permit {
+        &self.permits[permit_idx]
+    }
+
+    pub fn add_permit(&mut self, permit_params: EdgeParams) -> PermitIdx {
+        let permit_idx = self.permits.len();
+        self.permits.push(Permit {
+            params: permit_params,
+        });
+        permit_idx
     }
 
     pub fn add_node(&mut self, allows_through_traffic: bool) -> NodeIdx {
@@ -95,7 +123,7 @@ impl Graph {
         Ok(edge_idx)
     }
 
-    pub fn new(edges: Vec<Edge>, nodes: Vec<Node>) -> Result<Self, String> {
+    pub fn new(edges: Vec<Edge>, nodes: Vec<Node>, permits: Vec<Permit>) -> Result<Self, String> {
         let num_edges = edges.len();
         let num_nodes = nodes.len();
         for (edge_idx, edge) in edges.iter().enumerate() {
@@ -168,7 +196,11 @@ impl Graph {
             }
         }
 
-        Ok(Self { edges, nodes })
+        Ok(Self {
+            edges,
+            nodes,
+            permits,
+        })
     }
 }
 
@@ -198,7 +230,7 @@ impl GraphOps for Graph {
     }
 
     fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
-        self.edges[edge_idx].edge_params.param1
+        self.edges[edge_idx].edge_params.alpha
     }
 
     fn num_edges(&self) -> usize {
@@ -207,5 +239,9 @@ impl GraphOps for Graph {
 
     fn num_nodes(&self) -> usize {
         self.nodes.len()
+    }
+
+    fn num_permits(&self) -> usize {
+        self.permits.len()
     }
 }

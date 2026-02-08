@@ -5,6 +5,8 @@ pub trait GraphOps {
 
     fn num_nodes(&self) -> usize;
 
+    fn num_permits(&self) -> usize;
+
     fn incoming_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;
 
     fn outgoing_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx>;

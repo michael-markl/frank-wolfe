@@ -1,4 +1,4 @@
-use std::mem;
+use std::{mem, slice::Iter};
 
 use crate::{
     common::{BundleIdx, PermitIdx},
@@ -47,6 +47,16 @@ impl Bundle {
 
     pub fn set_minus_iter<'a>(&'a self, other: &'a Bundle) -> impl Iterator<Item = &'a PermitIdx> {
         self.0.iter().sorted_filter(other.0.iter())
+    }
+    
+    pub fn permits(&self) -> impl Iterator<Item = PermitIdx> + '_ {
+        self.0.iter().copied()
+    }
+}
+
+impl<'a> Into<Iter<'a, PermitIdx>> for &'a Bundle {
+    fn into(self) -> Iter<'a, PermitIdx> {
+        self.0.iter()
     }
 }
 

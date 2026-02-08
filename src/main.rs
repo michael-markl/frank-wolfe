@@ -7,9 +7,13 @@ use crate::{
     astar_tree::{AStarTree, ShortestPathCostOps},
     bundle_index::{Bundle, BundleIndex},
     col::{HashMap, map_new},
-    common::{BundleIdx, EdgeIdx, Float, PathIdx},
-    demand::DemandOps,
-    frank_wolfe::{ConvexProgramInstance, SolutionOps},
+    common::{BundleIdx, EdgeIdx, Float, PathIdx, PermitIdx},
+    demand::{Demand, DemandOps},
+    edge_based_convex_program::EdgeBasedConvexProgramInstance,
+    edge_based_solution::EdgeBasedSolution,
+    frank_wolfe::{
+        ConvexProgramInstance, LinearizedSubProblemSolution, SolutionOps, solve_convex_program,
+    },
     graph::{Edge, Graph},
     graph_ops::GraphOps,
     path_index::PathIndex,
@@ -22,13 +26,38 @@ mod bundle_index;
 mod col;
 mod common;
 mod demand;
+mod edge_based_convex_program;
+mod edge_based_solution;
 mod frank_wolfe;
 mod graph;
 mod graph_ops;
 mod index;
 mod iter;
+mod path_based_solution;
 mod path_index;
 mod tntp;
+
+struct BMWFunction {}
+
+impl BMWFunction {
+    fn evaluate(edge: &Edge, x: Float) -> Float {
+        let p = &edge.edge_params;
+
+        // int_0^x toll + alpha (1 + beta * (y+offset/gamma)^4) dy
+        // = x * (toll + alpha) + alpha * beta / gamma^4 * int_0^y (y + offset)^4 dy
+        // = x * (toll + alpha) + alpha * beta / gamma^4 * [ (x + offset)^5 -
+        // offset^5 ] / 5
+
+        x * (p.toll + p.alpha)
+            + p.alpha * p.beta / (5.0 * p.gamma.powi(4))
+                * ((x + p.offset).powi(5) - p.offset.powi(5))
+    }
+
+    fn derivative(edge: &Edge, x: Float) -> Float {
+        let p = &edge.edge_params;
+        p.toll + p.alpha * (1.0 + p.beta / (p.gamma.powi(4)) * (x + p.offset).powi(4))
+    }
+}
 
 fn main() {
     let tntpnet = tntp::read_net_file(std::path::Path::new(
@@ -40,161 +69,6 @@ fn main() {
         .map_err(|err| eprintln!("Error reading trips file: {}", err))
         .unwrap();
 
-    #[derive(Clone)]
-    enum EdgeFlowState {
-        Valid(Vec<Float>),
-        InvalidAllocated(Vec<Float>),
-        InvalidUnallocated(usize), // the number of edges, to initialize the flow vector
-    }
-
-    #[derive(Clone)]
-    struct PathBasedSolution {
-        path_flow: HashMap<PathIdx, (BundleIdx, Float)>,
-        edge_flow: EdgeFlowState,
-    }
-
-    fn compute_edge_flow(
-        path_flow: &HashMap<PathIdx, (BundleIdx, Float)>,
-        path_index: &PathIndex,
-        edge_flow: &mut Vec<Float>,
-    ) {
-        for (path_idx, (_bundle_idx, flow)) in path_flow {
-            let path = path_index.get_payload(*path_idx);
-            for edge_idx in path.edges() {
-                edge_flow[*edge_idx] += flow;
-            }
-        }
-    }
-
-    impl PathBasedSolution {
-        pub fn empty(num_edges: usize) -> Self {
-            PathBasedSolution {
-                path_flow: map_new(),
-                edge_flow: EdgeFlowState::InvalidUnallocated(num_edges),
-            }
-        }
-
-        pub fn num_edges(&self) -> usize {
-            match &self.edge_flow {
-                EdgeFlowState::Valid(edge_flow) => edge_flow.len(),
-                EdgeFlowState::InvalidAllocated(edge_flow) => edge_flow.len(),
-                EdgeFlowState::InvalidUnallocated(num_edges) => *num_edges,
-            }
-        }
-
-        pub fn edge_flow<'a>(&'a mut self, path_index: &'a PathIndex) -> &'a Vec<Float> {
-            let num_edges = self.num_edges();
-            let edge_flow = replace(
-                &mut self.edge_flow,
-                EdgeFlowState::InvalidUnallocated(num_edges),
-            );
-
-            self.edge_flow = match edge_flow {
-                EdgeFlowState::Valid(edge_flow) => EdgeFlowState::Valid(edge_flow),
-                EdgeFlowState::InvalidUnallocated(capacity) => {
-                    let mut edge_flow = vec![0.0; capacity];
-                    compute_edge_flow(&self.path_flow, path_index, &mut edge_flow);
-                    EdgeFlowState::Valid(edge_flow)
-                }
-                EdgeFlowState::InvalidAllocated(mut edge_flow) => {
-                    compute_edge_flow(&self.path_flow, path_index, &mut edge_flow);
-                    EdgeFlowState::Valid(edge_flow)
-                }
-            };
-
-            match &self.edge_flow {
-                EdgeFlowState::Valid(edge_flow) => edge_flow,
-                _ => unreachable!(),
-            }
-        }
-
-        fn invalidate_edge_flow(&mut self) {
-            let num_edges = self.num_edges();
-            let edge_flow = replace(
-                &mut self.edge_flow,
-                EdgeFlowState::InvalidUnallocated(num_edges),
-            );
-            self.edge_flow = match edge_flow {
-                EdgeFlowState::Valid(edge_flow) | EdgeFlowState::InvalidAllocated(edge_flow) => {
-                    EdgeFlowState::InvalidAllocated(edge_flow)
-                }
-                EdgeFlowState::InvalidUnallocated(_) => {
-                    EdgeFlowState::InvalidUnallocated(num_edges)
-                }
-            };
-        }
-    }
-
-    impl SolutionOps for PathBasedSolution {
-        fn from_linear_combination(sol1: &Self, scale2: Float, sol2: &Self) -> Self {
-            let mut path_flow = map_new();
-            for (path_idx, (bundle_idx, flow)) in &sol1.path_flow {
-                path_flow.insert(*path_idx, (*bundle_idx, *flow));
-            }
-            for (path_idx, (bundle_idx, flow)) in &sol2.path_flow {
-                path_flow
-                    .entry(*path_idx)
-                    .and_modify(|(_bundle_idx, existing_flow)| *existing_flow += scale2 * flow)
-                    .or_insert((*bundle_idx, scale2 * flow));
-            }
-            PathBasedSolution {
-                path_flow,
-                edge_flow: EdgeFlowState::InvalidUnallocated(sol1.num_edges()),
-            }
-        }
-
-        fn assign_linear_combination(&mut self, sol1: &Self, scale2: Float, sol2: &Self) {
-            self.path_flow.clear();
-            for (path_idx, (bundle_idx, flow)) in &sol1.path_flow {
-                self.path_flow.insert(*path_idx, (*bundle_idx, *flow));
-            }
-            for (path_idx, (bundle_idx, flow)) in &sol2.path_flow {
-                self.path_flow
-                    .entry(*path_idx)
-                    .and_modify(|(_bundle_idx, existing_flow)| *existing_flow += scale2 * flow)
-                    .or_insert((*bundle_idx, scale2 * flow));
-            }
-            self.invalidate_edge_flow();
-        }
-
-        fn add_scaled(&mut self, scale: Float, other: &Self) {
-            for (path_idx, (bundle_idx, flow)) in &other.path_flow {
-                self.path_flow
-                    .entry(*path_idx)
-                    .and_modify(|(_bundle_idx, existing_flow)| *existing_flow += scale * flow)
-                    .or_insert((*bundle_idx, scale * flow));
-            }
-            self.invalidate_edge_flow();
-        }
-
-        fn inner_prod(&self, other: &Self) -> Float {
-            todo!()
-        }
-    }
-
-    struct Instance {}
-
-    impl ConvexProgramInstance<PathBasedSolution> for Instance {
-        fn directional_derivative(
-            &self,
-            at: &PathBasedSolution,
-            direction: &PathBasedSolution,
-        ) -> Float {
-            todo!()
-        }
-
-        fn compute_objective(&self, solution: &PathBasedSolution) -> Float {
-            todo!()
-        }
-
-        fn solve_subproblem(
-            &self,
-            x: &PathBasedSolution,
-        ) -> frank_wolfe::LinearizedSubProblemSolution<PathBasedSolution> {
-            todo!()
-        }
-    }
-
     let graph = tntpnet.graph;
     let mut astar_table = AStarTable::create(graph.num_nodes(), demand.num_destinations());
     astar_table.fill_table(&graph, &demand);
@@ -205,37 +79,53 @@ fn main() {
         .unwrap()
         .transfer_element(Bundle::from_permits(vec![])); // TODO: Handle empty set more efficiently.
 
-    struct Costs<'a>(&'a Graph);
+    let instance = EdgeBasedConvexProgramInstance {
+        graph: &graph,
+        demand: &demand,
+        astar_table: &astar_table,
+        bundle_index: &bundle_index,
+    };
 
-    impl ShortestPathCostOps for Costs<'_> {
-        fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
-            self.0.edge_cost_lower_bound(edge_idx)
-        }
+    let initial_solution = instance.compute_shortest_path_flow(
+        &(0..graph.num_edges())
+            .map(|edge_idx| graph.edge(edge_idx).edge_params.alpha)
+            .collect::<Vec<_>>(),
+        &vec![],
+    );
 
-        fn get_permit_cost(&self, permit_idx: common::PermitIdx) -> Float {
-            todo!()
-        }
-    }
+    let solution = solve_convex_program(initial_solution, instance);
 
-    let costs = Costs(&graph);
+    let total_travel_time = solution
+        .edge_flow()
+        .iter()
+        .enumerate()
+        .map(|(edge_idx, it)| BMWFunction::derivative(graph.edge(edge_idx), *it) * *it)
+        .sum::<Float>();
 
-    demand
-        .par_iter_by_origin()
-        .for_each(|(&origin, commodity_indices)| {
-            let mut tree = AStarTree::new(origin);
+    let total_demand = demand.commodities().iter().map(|c| c.demand).sum::<Float>();
 
-            for &commodity_idx in commodity_indices {
-                let destination_idx = demand.get_commodity(commodity_idx).destination_idx;
-                tree.compute_distance(
-                    &astar_table,
-                    &graph,
-                    &demand,
-                    &costs,
-                    destination_idx,
-                    &bundle_index,
-                );
-            }
+    println!(
+        "Total travel time under solution: {:.6e}",
+        total_travel_time
+    );
+
+    println!("Total demand: {:.6e}", total_demand);
+
+    println!(
+        "Average travel time per unit of demand under solution: {:.6e}",
+        total_travel_time / total_demand
+    );
+
+    // Write solution to CSV file
+    let mut wtr = csv::Writer::from_path("solution.csv").unwrap();
+    wtr.write_record(&["edge_idx", "flow"]).unwrap();
+    solution
+        .edge_flow()
+        .iter()
+        .enumerate()
+        .for_each(|(edge_idx, flow)| {
+            wtr.write_record(&[edge_idx.to_string(), flow.to_string()])
+                .unwrap();
         });
-
-    //frank_wolfe::solve_convex_program(initial_solution, instance)
+    wtr.flush().unwrap();
 }

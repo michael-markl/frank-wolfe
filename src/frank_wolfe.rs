@@ -9,9 +9,26 @@ pub fn partial_min<T: PartialOrd>(a: T, b: T) -> T {
 
 type Float = f64;
 
+/// A solution to the linearized problem at the given gradient to get a search direction
+///
+/// The linearized problem is of the form
+/// ```math
+///     min <grad f(x), y>
+///     s.t. y in C
+/// ```
+/// The function returns an optimal solution y, together with the direction y - x,
+/// and the inner product of grad f(x) and (y - x).  
 pub struct LinearizedSubProblemSolution<Solution> {
+    /// An optimal solution to the linearized problem.
     pub solution: Solution,
+
+    /// The direction `y - x` from the current solution `x` to the optimal solution of the linearized problem `y`.
     pub direction: Solution,
+
+    /// The inner product of the gradient at the current solution and the direction, i.e., `<grad f(x), y - x>`.
+    ///
+    /// The sum of f(x) and this inner product is a new lower bound on the optimal value of the convex program.
+    /// Hence, the negated inner product is a lower bound on the optimality gap at point x.
     pub inner_product: Float,
 }
 
@@ -24,8 +41,6 @@ pub trait SolutionOps: Clone {
 
     /// Adds scaled version of other to self: self += scale * other
     fn add_scaled(&mut self, scale: Float, other: &Self);
-
-    fn inner_prod(&self, other: &Self) -> Float;
 }
 
 pub trait ConvexProgramInstance<Solution: SolutionOps> {
@@ -58,7 +73,7 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     direction: &Solution,
     instance: &I,
 ) -> Float {
-    let derivative_zero_tol: Float = 1e-8;
+    let derivative_zero_tol: Float = 1e-6;
     let line_search_max_iters: usize = 20;
 
     let mut low_alpha: Float = 0.0;
@@ -85,21 +100,14 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
 
     for _ in 0..line_search_max_iters {
         let mid_alpha = 0.5 * (low_alpha + high_alpha);
-        let mid_sol = if mid_sol.is_none() {
-            mid_sol = Some(Solution::from_linear_combination(
-                &low_sol,
-                mid_alpha - low_alpha,
-                &high_sol,
-            ));
-            mid_sol.as_mut().unwrap()
+        if let Some(mid_sol1) = &mut mid_sol {
+            mid_sol1.assign_linear_combination(&initial, mid_alpha, &direction);
         } else {
-            mid_sol.as_mut().unwrap().assign_linear_combination(
-                &low_sol,
-                mid_alpha - low_alpha,
-                &high_sol,
-            );
-            mid_sol.as_mut().unwrap()
+            mid_sol = Some(Solution::from_linear_combination(
+                &initial, mid_alpha, &direction,
+            ))
         };
+        let mid_sol = mid_sol.as_mut().unwrap();
         let mid_deriv = instance.directional_derivative(&mid_sol, direction);
 
         if mid_deriv.abs() < derivative_zero_tol {
@@ -122,7 +130,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     initial_solution: Solution,
     instance: I,
 ) -> Solution {
-    let max_iterations: usize = 5;
+    let max_iterations: usize = 100;
     let rel_gap_tol: Float = 1e-6;
     let abs_gap_tol: Float = 1e-8;
 
@@ -133,16 +141,17 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     for iteration in 0..max_iterations {
         let relative_gap = gap / cur_obj_val;
         println!(
-            "Before Iteration {}: obj val = {}, gap = {}, relative gap = {}",
+            "Before Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
 
-        let mut linear_solution = instance.solve_subproblem(&cur_solution);
+        let mut linear_solution: LinearizedSubProblemSolution<Solution> =
+            instance.solve_subproblem(&cur_solution);
         gap = partial_min(gap, -linear_solution.inner_product);
         let relative_gap = gap / cur_obj_val;
 
         println!(
-            "During Iteration {}: obj val = {}, gap = {}, relative gap = {}",
+            "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
 
@@ -160,7 +169,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         }
 
         let step_size = line_search(&cur_solution, &linear_solution.direction, &instance);
-        println!("Line search step size: {}", step_size);
+        println!("Line search step size: {:.6e}", step_size);
         if step_size == 0.0 {
             println!(
                 "Warning: step size is zero, but optimality goal not reached. We *should* be optimal."
@@ -169,7 +178,14 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         }
         if step_size == 1.0 {
             let new_obj_val = instance.compute_objective(&linear_solution.solution);
-            gap -= cur_obj_val - new_obj_val;
+            let diff = cur_obj_val - new_obj_val;
+            if diff < 0.0 {
+                println!(
+                    "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
+                    diff
+                );
+            }
+            gap -= diff;
 
             swap(&mut cur_solution, &mut linear_solution.solution);
             cur_obj_val = new_obj_val;
@@ -177,14 +193,21 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             cur_solution.add_scaled(step_size, &linear_solution.direction);
 
             let new_obj_val = instance.compute_objective(&cur_solution);
-            gap -= cur_obj_val - new_obj_val;
+            let diff = cur_obj_val - new_obj_val;
+            if diff < 0.0 {
+                println!(
+                    "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
+                    diff
+                );
+            }
+            gap -= diff;
 
             cur_obj_val = new_obj_val;
         }
     }
 
     println!(
-        "Finished gradient descent with objective value {}, gap {}, relative gap {}",
+        "Finished gradient descent with objective value {:.6e}, gap {:.6e}, relative gap {:.6e}",
         cur_obj_val,
         gap,
         gap / cur_obj_val
@@ -208,6 +231,12 @@ mod tests {
             y: f64,
         }
 
+        impl SimpleSolution {
+            fn inner_prod(&self, other: &Self) -> Float {
+                self.x * other.x + self.y * other.y
+            }
+        }
+
         impl SolutionOps for SimpleSolution {
             fn from_linear_combination(sol1: &Self, scale2: Float, sol2: &Self) -> Self {
                 SimpleSolution {
@@ -224,14 +253,6 @@ mod tests {
             fn add_scaled(&mut self, scale: Float, other: &Self) {
                 self.x += scale * other.x;
                 self.y += scale * other.y;
-            }
-
-            fn empty() -> Self {
-                SimpleSolution { x: 0.0, y: 0.0 }
-            }
-
-            fn inner_prod(&self, other: &Self) -> Float {
-                self.x * other.x + self.y * other.y
             }
         }
 

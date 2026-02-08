@@ -105,6 +105,38 @@ impl AStarTree {
         }
     }
 
+    pub fn compute_shortest_path(
+        &mut self,
+        table: &AStarTable,
+        graph: &impl GraphOps,
+        demand: &impl DemandOps,
+        costs: &impl ShortestPathCostOps,
+        destination_idx: DestinationIdx,
+        bundles: &RwLock<BundleIndex>,
+    ) -> (Float, Vec<EdgeIdx>, BundleIdx) {
+        let distance = self.compute_distance(table, graph, demand, costs, destination_idx, bundles);
+
+        let mut path = vec![];
+        let mut current_node = demand.node_idx_by_destination(destination_idx);
+        let bundle_idx = self
+            .distances
+            .get(&current_node)
+            .expect("Destination must be reachable from source")
+            .cheapest;
+        while current_node != self.source_idx {
+            let entry = self
+                .distances
+                .get(&current_node)
+                .expect("Current node must be reachable from source");
+            let (_bundle_idx, predecessor) = &entry.by_bundle[&entry.cheapest];
+            path.push(predecessor.edge_idx);
+            current_node = graph.edge_tail(predecessor.edge_idx);
+        }
+        path.reverse();
+
+        (distance, path, bundle_idx)
+    }
+
     pub fn compute_distance(
         &mut self,
         table: &AStarTable,
@@ -232,7 +264,7 @@ impl AStarTree {
                         .flatten()
                     {
                         debug_assert!(
-                            existing_entry.0 <= new_max_cost_from_source,
+                            existing_entry.0 <= new_max_cost_from_source + 1e-8,
                             "New path to node {} with bundle idx {} has higher cost than existing path with same bundle idx: {} > {}",
                             head,
                             new_bundle_idx,
