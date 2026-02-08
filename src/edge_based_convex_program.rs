@@ -63,7 +63,13 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
                     for edge_idx in path {
                         origin_edge_flow[edge_idx] += commodity.demand;
                     }
-                    for permit_idx in self.bundle_index.read().unwrap().get_payload(bundle_idx).permits() {
+                    for permit_idx in self
+                        .bundle_index
+                        .read()
+                        .unwrap()
+                        .get_payload(bundle_idx)
+                        .permits()
+                    {
                         origin_permit_flow[permit_idx] += commodity.demand;
                     }
                 }
@@ -102,14 +108,16 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
         at.edge_flow()
             .iter()
             .enumerate()
-            .map(|(edge_idx, it)| BMWFunction::derivative(self.graph.edge(edge_idx), *it))
+            .map(|(edge_idx, it)| BMWFunction::derivative(&self.graph.edge(edge_idx).params, *it))
             .zip(direction.edge_flow().iter())
             .map(|(a, b)| a * b)
             .sum::<Float>()
             + at.permit_flow()
                 .iter()
                 .enumerate()
-                .map(|(permit_idx, _it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
+                .map(|(permit_idx, &it)| {
+                    BMWFunction::derivative(&self.graph.permit(permit_idx).params, it)
+                })
                 .zip(direction.permit_flow().iter())
                 .map(|(a, b)| a * b)
                 .sum::<Float>()
@@ -120,13 +128,15 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
             .edge_flow()
             .iter()
             .enumerate()
-            .map(|(edge_idx, it)| BMWFunction::evaluate(self.graph.edge(edge_idx), *it))
+            .map(|(edge_idx, &it)| BMWFunction::evaluate(&self.graph.edge(edge_idx).params, it))
             .sum::<Float>()
             + solution
                 .permit_flow()
                 .iter()
                 .enumerate()
-                .map(|(permit_idx, it)| self.graph.permit(permit_idx).params.alpha * *it) // TODO: PERMIT COSTS
+                .map(|(permit_idx, &it)| {
+                    BMWFunction::evaluate(&self.graph.permit(permit_idx).params, it)
+                })
                 .sum::<Float>()
     }
 
@@ -138,17 +148,18 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
             .edge_flow()
             .iter()
             .enumerate()
-            .map(|(edge_idx, it)| BMWFunction::derivative(self.graph.edge(edge_idx), *it))
+            .map(|(edge_idx, &it)| BMWFunction::derivative(&self.graph.edge(edge_idx).params, it))
             .collect::<Vec<_>>();
 
         let permit_gradient_at_x = x
             .permit_flow()
             .iter()
             .enumerate()
-            .map(|(permit_idx, _it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
+            .map(|(permit_idx, &it)| {
+                BMWFunction::derivative(&self.graph.permit(permit_idx).params, it)
+            })
             .collect::<Vec<_>>();
 
-        // TODO: PERMIT COSTS
         let y = self.compute_shortest_path_flow(&edge_gradient_at_x, &permit_gradient_at_x);
         let diff = EdgeBasedSolution::from_linear_combination(&y, -1.0, &x);
         let inner_product =

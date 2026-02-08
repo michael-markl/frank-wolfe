@@ -10,10 +10,9 @@ use crate::{
     demand::DemandOps,
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     frank_wolfe::solve_convex_program,
-    graph::Edge,
+    graph::EdgeParams,
     graph_ops::GraphOps,
-    main_carbon_pricing::CarbonPricingArgs,
-    main_carbon_pricing::main_carbon_pricing,
+    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
 };
 
 mod astar;
@@ -37,9 +36,7 @@ mod tntp;
 struct BMWFunction {}
 
 impl BMWFunction {
-    fn evaluate(edge: &Edge, x: Float) -> Float {
-        let p = &edge.edge_params;
-
+    fn evaluate(p: &EdgeParams, x: Float) -> Float {
         // int_0^x toll + alpha (1 + beta * (y+offset/gamma)^4) dy
         // = x * (toll + alpha) + alpha * beta / gamma^4 * int_0^y (y + offset)^4 dy
         // = x * (toll + alpha) + alpha * beta / gamma^4 * [ (x + offset)^5 -
@@ -50,8 +47,7 @@ impl BMWFunction {
                 * ((x + p.offset).powi(5) - p.offset.powi(5))
     }
 
-    fn derivative(edge: &Edge, x: Float) -> Float {
-        let p = &edge.edge_params;
+    fn derivative(p: &EdgeParams, x: Float) -> Float {
         p.toll + p.alpha * (1.0 + p.beta / (p.gamma.powi(4)) * (x + p.offset).powi(4))
     }
 }
@@ -95,7 +91,7 @@ fn test() {
 
     let initial_solution = instance.compute_shortest_path_flow(
         &(0..graph.num_edges())
-            .map(|edge_idx| graph.edge(edge_idx).edge_params.alpha)
+            .map(|edge_idx| graph.edge(edge_idx).params.alpha)
             .collect::<Vec<_>>(),
         &vec![],
     );
@@ -106,7 +102,7 @@ fn test() {
         .edge_flow()
         .iter()
         .enumerate()
-        .map(|(edge_idx, it)| BMWFunction::derivative(graph.edge(edge_idx), *it) * *it)
+        .map(|(edge_idx, &it)| BMWFunction::derivative(&graph.edge(edge_idx).params, it) * it)
         .sum::<Float>();
 
     let total_demand = demand.commodities().iter().map(|c| c.demand).sum::<Float>();

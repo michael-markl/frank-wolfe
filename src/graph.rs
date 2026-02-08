@@ -24,7 +24,7 @@ pub struct Edge {
     pub head: NodeIdx,
     pub bundle: BundleIdx,
 
-    pub edge_params: EdgeParams,
+    pub params: EdgeParams,
 }
 
 pub struct Permit {
@@ -120,7 +120,7 @@ impl Graph {
             tail,
             head,
             bundle,
-            edge_params,
+            params: edge_params,
         });
         self.nodes[tail].outgoing_edges.push(edge_idx);
         self.nodes[head].incoming_edges.push(edge_idx);
@@ -234,7 +234,7 @@ impl GraphOps for Graph {
     }
 
     fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
-        self.edges[edge_idx].edge_params.alpha
+        self.edges[edge_idx].params.alpha
     }
 
     fn num_edges(&self) -> usize {
