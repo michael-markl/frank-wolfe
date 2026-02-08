@@ -39,6 +39,8 @@ pub struct CarbonPricingArgs {
     cordon_edge_map: Option<std::path::PathBuf>,
     #[arg(long = "permit_based", default_value_t = false)]
     permit_based: bool,
+    #[arg(long = "out_flow_template")]
+    flow_output_path: Option<std::path::PathBuf>
 }
 
 pub trait TollsStrategy {
@@ -52,6 +54,10 @@ impl TollsStrategy for Box<dyn TollsStrategy> {
 }
 
 pub fn main_carbon_pricing(args: CarbonPricingArgs) {
+    assert!(args.min_price <= args.max_price);
+    assert!(args.steps > 0);
+    assert!((args.steps == 1) == (args.min_price == args.max_price), "Steps must be 1 if and only if min_price equals max_price");
+
     let tntp_net = read_net_file(&args.tntp_net)
         .map_err(|err| eprintln!("Error reading net file: {}", err))
         .unwrap();
@@ -77,9 +83,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
 
     let bundle_index = RwLock::new(BundleIndex::new());
 
-    let cordon_pricing_map = args
-        .cordon_edge_map
-        .map(CordonPricingMap::from_csv);
+    let cordon_pricing_map = args.cordon_edge_map.map(CordonPricingMap::from_csv);
 
     let tolls_strategy: Box<dyn TollsStrategy> =
         if let Some(cordon_pricing_map) = &cordon_pricing_map {
@@ -166,6 +170,16 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         args.steps,
         tolls_strategy,
         |step, price, solution, graph| {
+            if let Some(flow_output_path_template) = &args.flow_output_path {
+                let flow_csv_path = if args.steps == 1 {
+                    flow_output_path_template.with_added_extension("csv")
+                } else {
+                    let step = format!("{:03}", step);
+                    flow_output_path_template.with_added_extension(step + ".csv")
+                };
+                write_flow_csv(solution, &flow_csv_path, graph)
+            }
+
             let total_travel_time = solution
                 .edge_flow()
                 .iter()
@@ -251,6 +265,34 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     );
 }
 
+fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
+    let mut wtr = csv::Writer::from_path(flow_csv_path)
+        .expect("Failed to create flow CSV writer");
+
+    wtr.write_record(&["edge_id", "flow", "capacity", "utilization", "travel_time_per_unit"])
+        .expect("Failed to write header");
+
+    let edge_flows = solution.edge_flow();
+    for edge_idx in 0..graph.num_edges() {
+        let edge = graph.edge(edge_idx);
+        let flow = edge_flows[edge_idx];
+        let capacity = edge.params.gamma;
+        let utilization = flow / capacity;
+        let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
+
+        wtr.write_record(&[
+            edge_idx.to_string(),
+            flow.to_string(),
+            capacity.to_string(),
+            utilization.to_string(),
+            travel_time_per_unit.to_string(),
+        ])
+        .expect("Failed to write flow record");
+    }
+
+    wtr.flush().expect("Failed to flush CSV writer");
+}
+
 pub fn compute_solutions_for_price_range<'a>(
     graph: &mut Graph,
     demand: &Demand,
@@ -267,7 +309,11 @@ pub fn compute_solutions_for_price_range<'a>(
     astar_table.fill_table(graph, demand);
 
     for step in 0..steps {
-        let price = min_price + (max_price - min_price) * (step as Float) / ((steps - 1) as Float);
+        let price = if steps == 1 {
+            min_price
+        } else {
+            min_price + (max_price - min_price) * (step as Float) / ((steps - 1) as Float)
+        };
         println!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
 
