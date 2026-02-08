@@ -152,6 +152,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         "total_consumption",
         "total_consumption_inside",
         "total_entrances",
+        "total_permit_flow",
     ])
     .unwrap();
     wtr.flush().unwrap();
@@ -220,6 +221,15 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .sum::<Float>()
             });
 
+            let total_permit_flow = cordon_pricing_map.as_ref().map(|_| {
+                solution
+                    .permit_flow()
+                    .iter()
+                    .enumerate()
+                    .map(|(_, &it)| it)
+                    .sum::<Float>()
+            });
+
             println!(
                 "Step {}: Price = {:.6e}, Total travel time = {:.6e}, Total user cost = {:.6e}, Total consumption = {:.6e}",
                 step, price, total_travel_time, total_user_cost, total_consumption
@@ -233,6 +243,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 total_consumption.to_string(),
                 consumption_inside.map_or("".to_string(), |v| v.to_string()),
                 total_entrances.map_or("".to_string(), |v| v.to_string()),
+                total_permit_flow.map_or("".to_string(), |v| v.to_string()),
             ])
             .unwrap();
             wtr.flush().unwrap();
