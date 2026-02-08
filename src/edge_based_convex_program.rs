@@ -15,14 +15,14 @@ use crate::{
     graph_ops::GraphOps,
 };
 
-pub struct EdgeBasedConvexProgramInstance<'a> {
-    pub graph: &'a Graph,
-    pub demand: &'a Demand,
-    pub astar_table: &'a AStarTable,
-    pub bundle_index: &'a RwLock<BundleIndex<'a>>,
+pub struct EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
+    pub graph: &'g Graph,
+    pub demand: &'d Demand,
+    pub astar_table: &'t AStarTable,
+    pub bundle_index: &'b RwLock<BundleIndex<'b>>,
 }
 
-impl<'a> EdgeBasedConvexProgramInstance<'a> {
+impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
     pub fn compute_shortest_path_flow(
         &self,
         edge_costs: &Vec<Float>,
@@ -91,7 +91,9 @@ impl<'a> EdgeBasedConvexProgramInstance<'a> {
     }
 }
 
-impl<'a> ConvexProgramInstance<EdgeBasedSolution> for EdgeBasedConvexProgramInstance<'a> {
+impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
+    for EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b>
+{
     fn directional_derivative(
         &self,
         at: &EdgeBasedSolution,
@@ -107,7 +109,7 @@ impl<'a> ConvexProgramInstance<EdgeBasedSolution> for EdgeBasedConvexProgramInst
             + at.permit_flow()
                 .iter()
                 .enumerate()
-                .map(|(permit_idx, it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
+                .map(|(permit_idx, _it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
                 .zip(direction.permit_flow().iter())
                 .map(|(a, b)| a * b)
                 .sum::<Float>()
@@ -143,7 +145,7 @@ impl<'a> ConvexProgramInstance<EdgeBasedSolution> for EdgeBasedConvexProgramInst
             .permit_flow()
             .iter()
             .enumerate()
-            .map(|(permit_idx, it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
+            .map(|(permit_idx, _it)| self.graph.permit(permit_idx).params.alpha) // TODO: PERMIT COSTS
             .collect::<Vec<_>>();
 
         // TODO: PERMIT COSTS

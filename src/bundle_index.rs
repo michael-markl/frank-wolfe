@@ -1,4 +1,4 @@
-use std::{mem, slice::Iter};
+use std::{mem, ops::{Deref, DerefMut}, slice::Iter};
 
 use crate::{
     common::{BundleIdx, PermitIdx},
@@ -60,4 +60,26 @@ impl<'a> Into<Iter<'a, PermitIdx>> for &'a Bundle {
     }
 }
 
-pub type BundleIndex<'a> = Index<'a, BundleIdx, Bundle>;
+pub struct BundleIndex<'a>(Index<'a, BundleIdx, Bundle>);
+
+impl<'a> BundleIndex<'a> {
+    pub fn new() -> Self {
+        let mut index = Index::new();
+        index.transfer_element(Bundle::empty());
+        Self(index)
+    }
+}
+
+impl<'a> Deref for BundleIndex<'a> {
+    type Target = Index<'a, BundleIdx, Bundle>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> DerefMut for BundleIndex<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

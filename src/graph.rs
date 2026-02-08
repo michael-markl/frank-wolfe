@@ -64,6 +64,10 @@ impl Graph {
         &self.edges[edge_idx]
     }
 
+    pub fn edge_mut(&mut self, edge_idx: EdgeIdx) -> &mut Edge {
+        &mut self.edges[edge_idx]
+    }
+
     pub fn node(&self, node_idx: NodeIdx) -> &Node {
         &self.nodes[node_idx]
     }

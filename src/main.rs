@@ -1,23 +1,19 @@
-use std::{mem::replace, sync::RwLock};
+use std::sync::RwLock;
 
+use clap::{Parser, Subcommand};
 use rayon::iter::ParallelIterator;
 
 use crate::{
     astar::AStarTable,
-    astar_tree::{AStarTree, ShortestPathCostOps},
-    bundle_index::{Bundle, BundleIndex},
-    col::{HashMap, map_new},
-    common::{BundleIdx, EdgeIdx, Float, PathIdx, PermitIdx},
-    demand::{Demand, DemandOps},
+    bundle_index::BundleIndex,
+    common::Float,
+    demand::DemandOps,
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
-    edge_based_solution::EdgeBasedSolution,
-    frank_wolfe::{
-        ConvexProgramInstance, LinearizedSubProblemSolution, SolutionOps, solve_convex_program,
-    },
-    graph::{Edge, Graph},
+    frank_wolfe::solve_convex_program,
+    graph::Edge,
     graph_ops::GraphOps,
-    path_index::PathIndex,
-    tntp::TNTPNet,
+    main_carbon_pricing::CarbonPricingArgs,
+    main_carbon_pricing::main_carbon_pricing,
 };
 
 mod astar;
@@ -33,6 +29,7 @@ mod graph;
 mod graph_ops;
 mod index;
 mod iter;
+mod main_carbon_pricing;
 mod path_based_solution;
 mod path_index;
 mod tntp;
@@ -59,7 +56,21 @@ impl BMWFunction {
     }
 }
 
-fn main() {
+#[derive(Parser)]
+#[command(name = "frank-wolfe")]
+#[command(about = "Frank-Wolfe traffic assignment experiments", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    CarbonPricing(CarbonPricingArgs),
+    Test,
+}
+
+fn test() {
     let tntpnet = tntp::read_net_file(std::path::Path::new(
         "C:\\Users\\markl07\\git\\TransportationNetworks\\Berlin-Center\\berlin-center_net.tntp",
     ))
@@ -74,10 +85,6 @@ fn main() {
     astar_table.fill_table(&graph, &demand);
 
     let bundle_index = RwLock::new(BundleIndex::new());
-    bundle_index
-        .write()
-        .unwrap()
-        .transfer_element(Bundle::from_permits(vec![])); // TODO: Handle empty set more efficiently.
 
     let instance = EdgeBasedConvexProgramInstance {
         graph: &graph,
@@ -128,4 +135,12 @@ fn main() {
                 .unwrap();
         });
     wtr.flush().unwrap();
+}
+
+fn main() {
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::CarbonPricing(args) => main_carbon_pricing(args),
+        Commands::Test => test(),
+    }
 }
