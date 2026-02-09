@@ -7,7 +7,7 @@ use crate::{
     astar::AStarTable,
     bundle_index::{Bundle, BundleIndex},
     col::{HashMap, map_new},
-    common::{BundleIdx, EdgeIdx, Float},
+    common::{EdgeIdx, Float, PermitIdx},
     demand::{Demand, DemandOps},
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
@@ -40,7 +40,7 @@ pub struct CarbonPricingArgs {
     #[arg(long = "permit_based", default_value_t = false)]
     permit_based: bool,
     #[arg(long = "out_flow_template")]
-    flow_output_path: Option<std::path::PathBuf>
+    flow_output_path: Option<std::path::PathBuf>,
 }
 
 pub trait TollsStrategy {
@@ -56,7 +56,10 @@ impl TollsStrategy for Box<dyn TollsStrategy> {
 pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     assert!(args.min_price <= args.max_price);
     assert!(args.steps > 0);
-    assert!((args.steps == 1) == (args.min_price == args.max_price), "Steps must be 1 if and only if min_price equals max_price");
+    assert!(
+        (args.steps == 1) == (args.min_price == args.max_price),
+        "Steps must be 1 if and only if min_price equals max_price"
+    );
 
     let tntp_net = read_net_file(&args.tntp_net)
         .map_err(|err| eprintln!("Error reading net file: {}", err))
@@ -108,7 +111,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 let permit_idx = graph.add_permit(EdgeParams {
                     alpha: 0.0,
                     beta: 0.0,
-                    gamma: Float::MAX,
+                    gamma: 999999.0,
                     length: 0.0,
                     toll: 0.0,
                     mode: EdgeMode::BPR,
@@ -126,22 +129,16 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     }
                 }
                 struct PermitBasedCordonPricing {
-                    bundle_idx: BundleIdx,
+                    permit_idx: PermitIdx,
                 }
 
                 impl TollsStrategy for PermitBasedCordonPricing {
                     fn set_tolls(&self, graph: &mut Graph, price: Float) {
-                        for edge_idx in 0..graph.num_edges() {
-                            let edge = graph.edge_mut(edge_idx);
-                            edge.params.toll = if edge.bundle == self.bundle_idx {
-                                price
-                            } else {
-                                0.0
-                            };
-                        }
+                        graph.permit_mut(self.permit_idx).params.toll = price;
                     }
                 }
-                Box::new(PermitBasedCordonPricing { bundle_idx })
+
+                Box::new(PermitBasedCordonPricing { permit_idx })
             }
         } else {
             Box::new(CarbonPricing {})
@@ -266,11 +263,16 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
 }
 
 fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
-    let mut wtr = csv::Writer::from_path(flow_csv_path)
-        .expect("Failed to create flow CSV writer");
+    let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
 
-    wtr.write_record(&["edge_id", "flow", "capacity", "utilization", "travel_time_per_unit"])
-        .expect("Failed to write header");
+    wtr.write_record(&[
+        "edge_id",
+        "flow",
+        "capacity",
+        "utilization",
+        "travel_time_per_unit",
+    ])
+    .expect("Failed to write header");
 
     let edge_flows = solution.edge_flow();
     for edge_idx in 0..graph.num_edges() {

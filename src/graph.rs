@@ -206,6 +206,10 @@ impl Graph {
             permits,
         })
     }
+    
+    pub fn permit_mut(&mut self, permit_idx: PermitIdx) -> &mut Permit {
+        &mut self.permits[permit_idx]
+    }
 }
 
 impl GraphOps for Graph {
