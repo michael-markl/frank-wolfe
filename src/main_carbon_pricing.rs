@@ -41,6 +41,8 @@ pub struct CarbonPricingArgs {
     permit_based: bool,
     #[arg(long = "out_flow_template")]
     flow_output_path: Option<std::path::PathBuf>,
+    #[arg(long = "reuse_solution", default_value_t = false)]
+    reuse_solution: bool,
 }
 
 pub trait TollsStrategy {
@@ -166,6 +168,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         args.max_price,
         args.steps,
         tolls_strategy,
+        args.reuse_solution,
         |step, price, solution, graph| {
             if let Some(flow_output_path_template) = &args.flow_output_path {
                 let flow_csv_path = if args.steps == 1 {
@@ -303,6 +306,7 @@ pub fn compute_solutions_for_price_range<'a>(
     max_price: Float,
     steps: usize,
     tolls_strategy: impl TollsStrategy,
+    reuse_solution: bool,
     mut on_step: impl FnMut(usize, Float, &EdgeBasedSolution, &Graph),
 ) {
     let mut solution: Option<EdgeBasedSolution> = None;
@@ -326,20 +330,27 @@ pub fn compute_solutions_for_price_range<'a>(
             bundle_index,
         };
 
-        let initial_solution = solution.take().unwrap_or_else(|| {
-            let edge_costs = (0..graph.num_edges())
+        let initial_solution = if reuse_solution {
+            solution.take().unwrap_or_else(|| compute_initial_solution(graph, &instance))
+        } else {
+            compute_initial_solution(graph, &instance)
+        };
+
+        solution = Some(solve_convex_program(initial_solution, instance));
+
+        on_step(step, price, solution.as_ref().unwrap(), graph);
+    }
+}
+
+fn compute_initial_solution(graph: &Graph, instance: &EdgeBasedConvexProgramInstance) -> EdgeBasedSolution {            
+    let edge_costs = (0..graph.num_edges())
                 .map(|edge_idx| BMWFunction::derivative(&graph.edge(edge_idx).params, 0.0))
                 .collect::<Vec<_>>();
             let permit_costs = (0..graph.num_permits())
                 .map(|permit_idx| BMWFunction::derivative(&graph.permit(permit_idx).params, 0.0))
                 .collect::<Vec<_>>();
             instance.compute_shortest_path_flow(&edge_costs, &permit_costs)
-        });
 
-        solution = Some(solve_convex_program(initial_solution, instance));
-
-        on_step(step, price, solution.as_ref().unwrap(), graph);
-    }
 }
 
 struct CarbonPricing {}

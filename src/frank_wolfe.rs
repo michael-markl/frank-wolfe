@@ -131,7 +131,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     instance: I,
 ) -> Solution {
     let max_iterations: usize = 100;
-    let rel_gap_tol: Float = 1e-6;
+    let rel_gap_tol: Float = 1e-9;
     let abs_gap_tol: Float = 1e-8;
 
     let mut cur_solution: Solution = initial_solution;
