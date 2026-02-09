@@ -114,14 +114,18 @@ impl AStarTree {
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> (Float, Vec<EdgeIdx>, BundleIdx) {
+        let mut current_node = demand.node_idx_by_destination(destination_idx);
+        if current_node == self.source_idx {
+            return (0.0, vec![], BUNDLE_IDX_EMPTY);
+        }
+
         let distance = self.compute_distance(table, graph, demand, costs, destination_idx, bundles);
 
         let mut path = vec![];
-        let mut current_node = demand.node_idx_by_destination(destination_idx);
         let bundle_idx = self
             .distances
             .get(&current_node)
-            .expect("Destination must be reachable from source")
+            .expect(format!("Destination {} must be reachable from source {}, distance = {}", destination_idx, self.source_idx, distance).as_str())
             .cheapest;
         while current_node != self.source_idx {
             let entry = self

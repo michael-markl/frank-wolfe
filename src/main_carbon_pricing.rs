@@ -170,6 +170,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         tolls_strategy,
         args.reuse_solution,
         |step, price, solution, graph| {
+            demand.check_solution(solution, graph);
+
             if let Some(flow_output_path_template) = &args.flow_output_path {
                 let flow_csv_path = if args.steps == 1 {
                     flow_output_path_template.with_added_extension("csv")
@@ -271,6 +273,7 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
     wtr.write_record(&[
         "edge_id",
         "flow",
+        "adjusted-length",
         "capacity",
         "utilization",
         "travel_time_per_unit",
@@ -281,6 +284,7 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
     for edge_idx in 0..graph.num_edges() {
         let edge = graph.edge(edge_idx);
         let flow = edge_flows[edge_idx];
+        let length = edge.params.length;
         let capacity = edge.params.gamma;
         let utilization = flow / capacity;
         let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
@@ -288,6 +292,7 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
         wtr.write_record(&[
             edge_idx.to_string(),
             flow.to_string(),
+            length.to_string(),
             capacity.to_string(),
             utilization.to_string(),
             travel_time_per_unit.to_string(),

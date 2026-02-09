@@ -2,7 +2,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     col::{HashMap, map_new},
-    common::{CommodityIdx, DestinationIdx, Float, NodeIdx},
+    common::{CommodityIdx, DestinationIdx, Float, NodeIdx}, graph_ops::GraphOps,
 };
 
 pub trait DemandOps {
@@ -74,6 +74,46 @@ impl Demand {
         &self,
     ) -> impl ParallelIterator<Item = (&NodeIdx, &Vec<CommodityIdx>)> {
         self.commodities_by_origin.par_iter()
+    }
+    
+    pub fn check_solution(&self, solution: &crate::edge_based_solution::EdgeBasedSolution, graph: &crate::graph::Graph) {
+        // Check flow conservation at every node
+        for node_idx in 0..graph.num_nodes() {
+            let mut inflow = 0.0;
+            let mut outflow = 0.0;
+
+            for incoming_edge in graph.incoming_edges(node_idx as NodeIdx) {
+                inflow += solution.edge_flow()[incoming_edge];
+            }
+
+            for outgoing_edge in graph.outgoing_edges(node_idx as NodeIdx) {
+                outflow += solution.edge_flow()[outgoing_edge];
+            }
+
+            // Calculate net demand at this node
+            let mut origin_demand = 0.0;
+            let mut destination_demand = 0.0;
+            for commodity in &self.commodities {
+                if commodity.origin == node_idx as NodeIdx {
+                    origin_demand += commodity.demand;
+                }
+                if self.destinations[commodity.destination_idx] == node_idx as NodeIdx {
+                    destination_demand += commodity.demand;
+                }
+            }
+
+            let balance = inflow - destination_demand - outflow + origin_demand;
+            let check_thru = graph.node_allows_through_traffic(node_idx) || (
+                (inflow - destination_demand).abs() < 1e-8 && (outflow - origin_demand).abs() < 1e-8
+            );
+
+            if balance.abs() >= 1e-8 || !check_thru {
+                println!(
+                    "Flow conservation violated at node {}: inflow={}, outflow={}, origin_demand={}, destination_demand={}, balance={}",
+                    node_idx, inflow, outflow, origin_demand, destination_demand, balance
+                );
+            }
+        }
     }
 }
 

@@ -171,7 +171,8 @@ fn parse_trip_pairs(
     demand: &mut Demand,
     tntp_net: &TNTPNet,
 ) -> Result<(), String> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
+    let stripped_semicolon = line.replace(";", " ");
+    let parts: Vec<&str> = stripped_semicolon.split_whitespace().collect();
     if !parts.len().is_multiple_of(3) {
         return Err(format!("Invalid trip pairs line format: '{}'", line));
     }
@@ -195,13 +196,6 @@ fn parse_trip_pairs(
                 line
             ));
         }
-        if !demand_value.ends_with(";") {
-            return Err(format!(
-                "Invalid trip pairs line format (expected ';' at end of demand value): '{}'",
-                line
-            ));
-        }
-        let demand_value = &demand_value[..demand_value.len() - 1];
         let demand_value = demand_value
             .parse::<Float>()
             .map_err(|err| format!("Invalid demand value in trip pairs: {}", err))?;
@@ -263,6 +257,8 @@ pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String
 
         parse_trip_pairs(trimmed, origin_node_idx, &mut demand, tntp_net)?;
     }
+
+    println!("Total demand: {:.6e}", demand.commodities().iter().map(|c| c.demand).sum::<Float>());
 
     Ok(demand)
 }

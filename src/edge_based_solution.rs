@@ -1,3 +1,5 @@
+use rayon::slice::ParallelSliceMut;
+
 use crate::{common::Float, frank_wolfe::SolutionOps};
 
 #[derive(Clone)]
@@ -34,17 +36,19 @@ impl EdgeBasedSolution {
     }
 
     pub fn inner_prod(&self, other: &Self) -> Float {
-        self.edge_flow
+        let mut all_scalars = 
+            self.edge_flow
             .iter()
             .zip(&other.edge_flow)
             .map(|(f1, f2)| f1 * f2)
-            .sum::<Float>()
-            + self
+            .chain(self
                 .permit_flow
                 .iter()
                 .zip(&other.permit_flow)
-                .map(|(f1, f2)| f1 * f2)
-                .sum::<Float>()
+                .map(|(f1, f2)| f1 * f2))
+                .collect::<Vec<Float>>();
+        all_scalars.par_sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+        all_scalars.iter().sum()
     }
 }
 

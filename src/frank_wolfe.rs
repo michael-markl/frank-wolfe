@@ -73,7 +73,7 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     direction: &Solution,
     instance: &I,
 ) -> Float {
-    let derivative_zero_tol: Float = 1e-6;
+    let derivative_zero_tol: Float = 1e-8;
     let line_search_max_iters: usize = 20;
 
     let mut low_alpha: Float = 0.0;
@@ -130,7 +130,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     initial_solution: Solution,
     instance: I,
 ) -> Solution {
-    let max_iterations: usize = 100;
+    let max_iterations: usize = 7000;
     let rel_gap_tol: Float = 1e-9;
     let abs_gap_tol: Float = 1e-8;
 
