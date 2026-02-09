@@ -1,6 +1,7 @@
 use std::sync::RwLock;
 
 use clap_derive::Parser;
+use rayon::iter::ParallelIterator;
 
 use crate::{
     BMWFunction,
@@ -130,6 +131,51 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                         edge.bundle = bundle_idx;
                     }
                 }
+
+                pub fn minimum_demand_using_permit(graph: &Graph, demand: &Demand, bundle_index: &RwLock<BundleIndex>, permit_idx: usize) -> Float {
+                    demand
+                        .par_iter_by_origin()
+                        .map(|(&origin, commodities)| {
+                            // Find all nodes reachable from origin using only edges that lie outside the cordon
+                            let reachable = {
+                                let mut visited = map_new();
+                                let mut stack = vec![origin];
+                                while let Some(node_idx) = stack.pop() {
+                                    if visited.contains_key(&node_idx) {
+                                        continue;
+                                    }
+                                    visited.insert(node_idx, true);
+                                    for edge_idx in graph.outgoing_edges(node_idx) {
+                                        let edge = graph.edge(edge_idx);
+                                        let is_cordon_edge = bundle_index
+                                            .read()
+                                            .unwrap()
+                                            .get_payload(edge.bundle)
+                                            .permits()
+                                            .any(|p_idx| p_idx == permit_idx);
+                                        if !is_cordon_edge {
+                                            stack.push(edge.head);
+                                        }
+                                    }
+                                }
+                                visited
+                            };
+
+                            commodities
+                                .iter()
+                                .filter(|&&commodity_idx| {
+                                    let commodity = demand.get_commodity(commodity_idx);
+                                    let dest_node_idx = demand.node_idx_by_destination(commodity.destination_idx);
+                                    !reachable.contains_key(&dest_node_idx)
+                                })
+                                .map(|&commodity_idx| demand.get_commodity(commodity_idx).demand)
+                                .sum::<Float>()
+                        })
+                        .sum()
+                }
+
+                println!("Minimum demand using permit: {:.6e}", minimum_demand_using_permit(&graph, &demand, &bundle_index, permit_idx));
+
                 struct PermitBasedCordonPricing {
                     permit_idx: PermitIdx,
                 }
