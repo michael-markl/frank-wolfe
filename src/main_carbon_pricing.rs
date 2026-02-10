@@ -1,6 +1,7 @@
 use std::sync::RwLock;
 
 use clap_derive::Parser;
+use log::trace;
 use rayon::iter::ParallelIterator;
 
 use crate::{
@@ -65,10 +66,10 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     );
 
     let tntp_net = read_net_file(&args.tntp_net)
-        .map_err(|err| eprintln!("Error reading net file: {}", err))
+        .map_err(|err| error!("Error reading net file: {}", err))
         .unwrap();
     let demand = read_trips_file(&args.tntp_trips, &tntp_net)
-        .map_err(|err| eprintln!("Error reading trips file: {}", err))
+        .map_err(|err| error!("Error reading trips file: {}", err))
         .unwrap();
 
     let mut graph = tntp_net.graph;
@@ -174,7 +175,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                         .sum()
                 }
 
-                println!("Minimum demand using permit: {:.6e}", minimum_demand_using_permit(&graph, &demand, &bundle_index, permit_idx));
+                info!("Minimum demand using permit: {:.6e}", minimum_demand_using_permit(&graph, &demand, &bundle_index, permit_idx));
 
                 struct PermitBasedCordonPricing {
                     permit_idx: PermitIdx,
@@ -292,7 +293,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .sum::<Float>()
             });
 
-            println!(
+            trace!(
                 "Step {}: Price = {:.6e}, Total travel time = {:.6e}, Total user cost = {:.6e}, Total consumption = {:.6e}",
                 step, price, total_travel_time, total_user_cost, total_consumption
             );
@@ -371,7 +372,7 @@ pub fn compute_solutions_for_price_range<'a>(
         } else {
             min_price + (max_price - min_price) * (step as Float) / ((steps - 1) as Float)
         };
-        println!("Step {}: Price = {:.6e}", step, price);
+        trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
 
         let instance = EdgeBasedConvexProgramInstance {

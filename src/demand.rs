@@ -1,5 +1,5 @@
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-
+use log::warn;
 use crate::{
     col::{HashMap, map_new},
     common::{CommodityIdx, DestinationIdx, Float, NodeIdx}, graph_ops::GraphOps,
@@ -108,7 +108,7 @@ impl Demand {
             );
 
             if balance.abs() >= 1e-8 || !check_thru {
-                println!(
+                warn!(
                     "Flow conservation violated at node {}: inflow={}, outflow={}, origin_demand={}, destination_demand={}, balance={}",
                     node_idx, inflow, outflow, origin_demand, destination_demand, balance
                 );

@@ -1,5 +1,7 @@
 use std::mem::swap;
 
+use log::{info, trace, warn};
+
 /// Returns the minimum of two values, if they are comparable, and otherwise returns the second value.
 ///
 /// Specifically, for IEEE-754 floating point numbers, if either value is NaN, the second value is returned.
@@ -131,7 +133,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     instance: I,
 ) -> Solution {
     let max_iterations: usize = 7000;
-    let rel_gap_tol: Float = 1e-9;
+    let rel_gap_tol: Float = 0.001 * 0.01; // 0.001% relative gap.
     let abs_gap_tol: Float = 1e-8;
 
     let mut cur_solution: Solution = initial_solution;
@@ -140,7 +142,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
 
     for iteration in 0..max_iterations {
         let relative_gap = gap / cur_obj_val;
-        println!(
+        trace!(
             "Before Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
@@ -150,28 +152,28 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         gap = partial_min(gap, -linear_solution.inner_product);
         let relative_gap = gap / cur_obj_val;
 
-        println!(
+        trace!(
             "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
 
         if gap < 0.0 {
-            println!("Warning: negative optimality gap. We *should* be optimal.");
+            warn!("Warning: negative optimality gap. We *should* be optimal.");
             break;
         }
         if gap < abs_gap_tol {
-            println!("Optimal solution found.");
+            info!("Optimal solution found.");
             break;
         }
         if relative_gap.abs() < rel_gap_tol {
-            println!("Desired relative optimality gap reached.");
+            info!("Desired relative optimality gap reached.");
             break;
         }
 
         let step_size = line_search(&cur_solution, &linear_solution.direction, &instance);
-        println!("Line search step size: {:.6e}", step_size);
+        trace!("Line search step size: {:.6e}", step_size);
         if step_size == 0.0 {
-            println!(
+            warn!(
                 "Warning: step size is zero, but optimality goal not reached. We *should* be optimal."
             );
             break;
@@ -180,7 +182,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             let new_obj_val = instance.compute_objective(&linear_solution.solution);
             let diff = cur_obj_val - new_obj_val;
             if diff < 0.0 {
-                println!(
+                warn!(
                     "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
                     diff
                 );
@@ -195,7 +197,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             let new_obj_val = instance.compute_objective(&cur_solution);
             let diff = cur_obj_val - new_obj_val;
             if diff < 0.0 {
-                println!(
+                warn!(
                     "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
                     diff
                 );
@@ -206,7 +208,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         }
     }
 
-    println!(
+    info!(
         "Finished gradient descent with objective value {:.6e}, gap {:.6e}, relative gap {:.6e}",
         cur_obj_val,
         gap,

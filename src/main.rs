@@ -1,6 +1,7 @@
 use std::sync::RwLock;
 
 use clap::{Parser, Subcommand};
+use log::{error, info};
 
 use crate::{
     astar::AStarTable,
@@ -69,10 +70,10 @@ fn test() {
     let tntpnet = tntp::read_net_file(std::path::Path::new(
         "C:\\Users\\markl07\\git\\TransportationNetworks\\Berlin-Center\\berlin-center_net.tntp",
     ))
-    .map_err(|err| eprintln!("Error reading net file: {}", err))
+    .map_err(|err| error!("Error reading net file: {}", err))
     .unwrap();
     let demand= tntp::read_trips_file(std::path::Path::new("C:\\Users\\markl07\\git\\TransportationNetworks\\Berlin-Center\\berlin-center_trips.tntp"), &tntpnet)
-        .map_err(|err| eprintln!("Error reading trips file: {}", err))
+        .map_err(|err| error!("Error reading trips file: {}", err))
         .unwrap();
 
     let graph = tntpnet.graph;
@@ -106,14 +107,14 @@ fn test() {
 
     let total_demand = demand.commodities().iter().map(|c| c.demand).sum::<Float>();
 
-    println!(
+    info!(
         "Total travel time under solution: {:.6e}",
         total_travel_time
     );
 
-    println!("Total demand: {:.6e}", total_demand);
+    info!("Total demand: {:.6e}", total_demand);
 
-    println!(
+    info!(
         "Average travel time per unit of demand under solution: {:.6e}",
         total_travel_time / total_demand
     );
@@ -133,6 +134,7 @@ fn test() {
 }
 
 fn main() {
+    env_logger::init();
     let cli = Cli::parse();
     match cli.command {
         Commands::CarbonPricing(args) => main_carbon_pricing(args),

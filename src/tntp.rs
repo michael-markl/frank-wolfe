@@ -4,6 +4,8 @@ use std::{
     path::Path,
 };
 
+use log::info;
+
 use crate::{
     col::{HashMap, map_new},
     common::{BUNDLE_IDX_EMPTY, Float, NodeIdx},
@@ -73,7 +75,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
         })
         .transpose()?;
 
-    println!("First thru node: {:?}", first_thru_node);
+    info!("First thru node: {:?}", first_thru_node);
 
     let (header_idx, header) = lines_iter
         .next()
@@ -258,7 +260,7 @@ pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String
         parse_trip_pairs(trimmed, origin_node_idx, &mut demand, tntp_net)?;
     }
 
-    println!("Total demand: {:.6e}", demand.commodities().iter().map(|c| c.demand).sum::<Float>());
+    info!("Total demand: {:.6e}", demand.commodities().iter().map(|c| c.demand).sum::<Float>());
 
     Ok(demand)
 }
