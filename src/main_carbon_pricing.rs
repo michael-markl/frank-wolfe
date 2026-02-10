@@ -1,7 +1,7 @@
 use std::sync::RwLock;
 
 use clap_derive::Parser;
-use log::trace;
+use log::{error, info, trace};
 use rayon::iter::ParallelIterator;
 
 use crate::{
