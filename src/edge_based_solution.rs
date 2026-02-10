@@ -36,8 +36,7 @@ impl EdgeBasedSolution {
     }
 
     pub fn inner_prod(&self, other: &Self) -> Float {
-        let mut all_scalars = 
-            self.edge_flow
+        self.edge_flow
             .iter()
             .zip(&other.edge_flow)
             .map(|(f1, f2)| f1 * f2)
@@ -46,9 +45,7 @@ impl EdgeBasedSolution {
                 .iter()
                 .zip(&other.permit_flow)
                 .map(|(f1, f2)| f1 * f2))
-                .collect::<Vec<Float>>();
-        all_scalars.par_sort_by(|a, b| a.abs().total_cmp(&b.abs()));
-        all_scalars.iter().sum()
+                .sum()
     }
 }
 
