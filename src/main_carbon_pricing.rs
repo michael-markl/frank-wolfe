@@ -14,7 +14,7 @@ use crate::{
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
     frank_wolfe::solve_convex_program,
-    graph::{EdgeMode, EdgeParams, Graph},
+    graph::{EdgeParams, Graph},
     graph_ops::GraphOps,
     tntp::{read_net_file, read_trips_file},
 };
@@ -77,7 +77,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     if let Some(min_per_time_unit) = args.min_per_time_unit {
         for edge_idx in 0..graph.num_edges() {
             let edge = graph.edge_mut(edge_idx);
-            edge.params.alpha *= min_per_time_unit;
+            edge.params.ff_time *= min_per_time_unit;
         }
     }
 
@@ -113,12 +113,11 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 })
             } else {
                 let permit_idx = graph.add_permit(EdgeParams {
-                    alpha: 0.0,
+                    ff_time: 0.0,
                     beta: 0.0,
-                    gamma: 999999.0,
+                    capacity: 999999.0,
                     length: 0.0,
                     toll: 0.0,
-                    mode: EdgeMode::BPR,
                     offset: 0.0,
                 });
                 let bundle_idx = bundle_index
@@ -133,7 +132,12 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     }
                 }
 
-                pub fn minimum_demand_using_permit(graph: &Graph, demand: &Demand, bundle_index: &RwLock<BundleIndex>, permit_idx: usize) -> Float {
+                pub fn minimum_demand_using_permit(
+                    graph: &Graph,
+                    demand: &Demand,
+                    bundle_index: &RwLock<BundleIndex>,
+                    permit_idx: usize,
+                ) -> Float {
                     demand
                         .par_iter_by_origin()
                         .map(|(&origin, commodities)| {
@@ -166,7 +170,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                                 .iter()
                                 .filter(|&&commodity_idx| {
                                     let commodity = demand.get_commodity(commodity_idx);
-                                    let dest_node_idx = demand.node_idx_by_destination(commodity.destination_idx);
+                                    let dest_node_idx =
+                                        demand.node_idx_by_destination(commodity.destination_idx);
                                     !reachable.contains_key(&dest_node_idx)
                                 })
                                 .map(|&commodity_idx| demand.get_commodity(commodity_idx).demand)
@@ -175,7 +180,10 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                         .sum()
                 }
 
-                info!("Minimum demand using permit: {:.6e}", minimum_demand_using_permit(&graph, &demand, &bundle_index, permit_idx));
+                info!(
+                    "Minimum demand using permit: {:.6e}",
+                    minimum_demand_using_permit(&graph, &demand, &bundle_index, permit_idx)
+                );
 
                 struct PermitBasedCordonPricing {
                     permit_idx: PermitIdx,
@@ -211,8 +219,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         &mut graph,
         &demand,
         &bundle_index,
-        args.min_price,
-        args.max_price,
+        (args.min_price, args.max_price),
         args.steps,
         tolls_strategy,
         args.reuse_solution,
@@ -332,7 +339,7 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
         let edge = graph.edge(edge_idx);
         let flow = edge_flows[edge_idx];
         let length = edge.params.length;
-        let capacity = edge.params.gamma;
+        let capacity = edge.params.capacity;
         let utilization = flow / capacity;
         let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
 
@@ -354,8 +361,7 @@ pub fn compute_solutions_for_price_range<'a>(
     graph: &mut Graph,
     demand: &Demand,
     bundle_index: &'a RwLock<BundleIndex<'a>>,
-    min_price: Float,
-    max_price: Float,
+    price_range: (Float, Float),
     steps: usize,
     tolls_strategy: impl TollsStrategy,
     reuse_solution: bool,
@@ -368,9 +374,10 @@ pub fn compute_solutions_for_price_range<'a>(
 
     for step in 0..steps {
         let price = if steps == 1 {
-            min_price
+            price_range.0
         } else {
-            min_price + (max_price - min_price) * (step as Float) / ((steps - 1) as Float)
+            price_range.0
+                + (price_range.1 - price_range.0) * (step as Float) / ((steps - 1) as Float)
         };
         trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
@@ -383,7 +390,9 @@ pub fn compute_solutions_for_price_range<'a>(
         };
 
         let initial_solution = if reuse_solution {
-            solution.take().unwrap_or_else(|| compute_initial_solution(graph, &instance))
+            solution
+                .take()
+                .unwrap_or_else(|| compute_initial_solution(graph, &instance))
         } else {
             compute_initial_solution(graph, &instance)
         };
@@ -394,15 +403,17 @@ pub fn compute_solutions_for_price_range<'a>(
     }
 }
 
-fn compute_initial_solution(graph: &Graph, instance: &EdgeBasedConvexProgramInstance) -> EdgeBasedSolution {            
+fn compute_initial_solution(
+    graph: &Graph,
+    instance: &EdgeBasedConvexProgramInstance,
+) -> EdgeBasedSolution {
     let edge_costs = (0..graph.num_edges())
-                .map(|edge_idx| BMWFunction::derivative(&graph.edge(edge_idx).params, 0.0))
-                .collect::<Vec<_>>();
-            let permit_costs = (0..graph.num_permits())
-                .map(|permit_idx| BMWFunction::derivative(&graph.permit(permit_idx).params, 0.0))
-                .collect::<Vec<_>>();
-            instance.compute_shortest_path_flow(&edge_costs, &permit_costs)
-
+        .map(|edge_idx| BMWFunction::derivative(&graph.edge(edge_idx).params, 0.0))
+        .collect::<Vec<_>>();
+    let permit_costs = (0..graph.num_permits())
+        .map(|permit_idx| BMWFunction::derivative(&graph.permit(permit_idx).params, 0.0))
+        .collect::<Vec<_>>();
+    instance.compute_shortest_path_flow(&edge_costs, &permit_costs)
 }
 
 struct CarbonPricing {}

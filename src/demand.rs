@@ -1,9 +1,10 @@
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use log::warn;
 use crate::{
     col::{HashMap, map_new},
-    common::{CommodityIdx, DestinationIdx, Float, NodeIdx}, graph_ops::GraphOps,
+    common::{CommodityIdx, DestinationIdx, Float, NodeIdx},
+    graph_ops::GraphOps,
 };
+use log::warn;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub trait DemandOps {
     fn node_idx_by_destination(&self, destination_idx: DestinationIdx) -> NodeIdx;
@@ -75,8 +76,12 @@ impl Demand {
     ) -> impl ParallelIterator<Item = (&NodeIdx, &Vec<CommodityIdx>)> {
         self.commodities_by_origin.par_iter()
     }
-    
-    pub fn check_solution(&self, solution: &crate::edge_based_solution::EdgeBasedSolution, graph: &crate::graph::Graph) {
+
+    pub fn check_solution(
+        &self,
+        solution: &crate::edge_based_solution::EdgeBasedSolution,
+        graph: &crate::graph::Graph,
+    ) {
         // Check flow conservation at every node
         for node_idx in 0..graph.num_nodes() {
             let mut inflow = 0.0;
@@ -103,9 +108,9 @@ impl Demand {
             }
 
             let balance = inflow - destination_demand - outflow + origin_demand;
-            let check_thru = graph.node_allows_through_traffic(node_idx) || (
-                (inflow - destination_demand).abs() < 1e-8 && (outflow - origin_demand).abs() < 1e-8
-            );
+            let check_thru = graph.node_allows_through_traffic(node_idx)
+                || ((inflow - destination_demand).abs() < 1e-8
+                    && (outflow - origin_demand).abs() < 1e-8);
 
             if balance.abs() >= 1e-8 || !check_thru {
                 warn!(

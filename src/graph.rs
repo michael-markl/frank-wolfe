@@ -3,19 +3,12 @@ use crate::{
     graph_ops::GraphOps,
 };
 
-pub enum EdgeMode {
-    Constant,
-    BPR,
-    OP,
-}
-
 pub struct EdgeParams {
-    pub mode: EdgeMode,
     pub toll: Float,
     pub offset: Float,
-    pub alpha: Float,
+    pub ff_time: Float,
     pub beta: Float,
-    pub gamma: Float,
+    pub capacity: Float,
     pub length: Float,
 }
 
@@ -66,10 +59,6 @@ impl Graph {
 
     pub fn edge_mut(&mut self, edge_idx: EdgeIdx) -> &mut Edge {
         &mut self.edges[edge_idx]
-    }
-
-    pub fn node(&self, node_idx: NodeIdx) -> &Node {
-        &self.nodes[node_idx]
     }
 
     pub fn permit(&self, permit_idx: PermitIdx) -> &Permit {
@@ -127,86 +116,6 @@ impl Graph {
         Ok(edge_idx)
     }
 
-    pub fn new(edges: Vec<Edge>, nodes: Vec<Node>, permits: Vec<Permit>) -> Result<Self, String> {
-        let num_edges = edges.len();
-        let num_nodes = nodes.len();
-        for (edge_idx, edge) in edges.iter().enumerate() {
-            if edge.tail >= num_nodes {
-                return Err(format!(
-                    "Edge {} has tail node index {} out of bounds (num nodes: {})",
-                    edge_idx, edge.tail, num_nodes
-                ));
-            }
-            if edge.head >= num_nodes {
-                return Err(format!(
-                    "Edge {} has head node index {} out of bounds (num nodes: {})",
-                    edge_idx, edge.head, num_nodes
-                ));
-            }
-            if nodes[edge.tail]
-                .outgoing_edges
-                .iter()
-                .filter(|&&idx| idx == edge_idx)
-                .count()
-                != 1
-            {
-                return Err(format!(
-                    "Edge {} is not listed exactly once in outgoing edges of its tail node {}",
-                    edge_idx, edge.tail
-                ));
-            }
-            if nodes[edge.head]
-                .incoming_edges
-                .iter()
-                .filter(|&&idx| idx == edge_idx)
-                .count()
-                != 1
-            {
-                return Err(format!(
-                    "Edge {} is not listed exactly once in incoming edges of its head node {}",
-                    edge_idx, edge.head
-                ));
-            }
-        }
-
-        for (node_idx, node) in nodes.iter().enumerate() {
-            for &edge_idx in &node.incoming_edges {
-                if edge_idx >= num_edges {
-                    return Err(format!(
-                        "Node {} has incoming edge index {} out of bounds (num edges: {})",
-                        node_idx, edge_idx, num_edges
-                    ));
-                }
-                if edges[edge_idx].head != node_idx {
-                    return Err(format!(
-                        "Node {} has incoming edge index {} whose head is not equal to the node index",
-                        node_idx, edge_idx
-                    ));
-                }
-            }
-            for &edge_idx in &node.outgoing_edges {
-                if edge_idx >= num_edges {
-                    return Err(format!(
-                        "Node {} has outgoing edge index {} out of bounds (num edges: {})",
-                        node_idx, edge_idx, num_edges
-                    ));
-                }
-                if edges[edge_idx].tail != node_idx {
-                    return Err(format!(
-                        "Node {} has outgoing edge index {} whose tail is not equal to the node index",
-                        node_idx, edge_idx
-                    ));
-                }
-            }
-        }
-
-        Ok(Self {
-            edges,
-            nodes,
-            permits,
-        })
-    }
-    
     pub fn permit_mut(&mut self, permit_idx: PermitIdx) -> &mut Permit {
         &mut self.permits[permit_idx]
     }
@@ -238,7 +147,7 @@ impl GraphOps for Graph {
     }
 
     fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
-        self.edges[edge_idx].params.alpha
+        self.edges[edge_idx].params.ff_time
     }
 
     fn num_edges(&self) -> usize {

@@ -10,7 +10,7 @@ use crate::{
     col::{HashMap, map_new},
     common::{BUNDLE_IDX_EMPTY, Float, NodeIdx},
     demand::Demand,
-    graph::{EdgeMode, EdgeParams, Graph},
+    graph::{EdgeParams, Graph},
 };
 
 pub struct TNTPNet {
@@ -150,10 +150,9 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
         let edge_params = EdgeParams {
             toll: 0.0,
             offset: 0.0,
-            mode: EdgeMode::BPR,
-            alpha: free_flow_time,
+            ff_time: free_flow_time,
             beta: b,
-            gamma: capacity,
+            capacity,
             length,
         };
         graph
@@ -260,7 +259,10 @@ pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String
         parse_trip_pairs(trimmed, origin_node_idx, &mut demand, tntp_net)?;
     }
 
-    info!("Total demand: {:.6e}", demand.commodities().iter().map(|c| c.demand).sum::<Float>());
+    info!(
+        "Total demand: {:.6e}",
+        demand.commodities().iter().map(|c| c.demand).sum::<Float>()
+    );
 
     Ok(demand)
 }

@@ -22,16 +22,8 @@ impl<'a, Idx: Copy + Into<usize> + From<usize>, Payload: Eq + Hash + ?Sized>
         self.by_idx.get(element).copied()
     }
 
-    pub fn find_payload(&self, idx: Idx) -> Option<&Payload> {
-        self.elements.get(idx.into()).map(|boxed| boxed.as_ref())
-    }
-
     pub fn get_payload(&self, idx: Idx) -> &Payload {
         &self.elements[Idx::into(idx)]
-    }
-
-    pub fn element_ids(&self) -> impl Iterator<Item = Idx> {
-        (0..self.elements.len()).map(|id| Idx::from(id))
     }
 
     pub fn transfer_element(&mut self, element_box: Box<Payload>) -> Idx {

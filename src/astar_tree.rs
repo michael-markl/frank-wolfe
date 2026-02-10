@@ -19,7 +19,6 @@ pub trait ShortestPathCostOps {
 
 #[derive(Debug)]
 struct Predecessor {
-    previous_bundle_idx: BundleIdx,
     edge_idx: EdgeIdx,
 }
 
@@ -125,7 +124,13 @@ impl AStarTree {
         let bundle_idx = self
             .distances
             .get(&current_node)
-            .expect(format!("Destination {} must be reachable from source {}, distance = {}", destination_idx, self.source_idx, distance).as_str())
+            .expect(
+                format!(
+                    "Destination {} must be reachable from source {}, distance = {}",
+                    destination_idx, self.source_idx, distance
+                )
+                .as_str(),
+            )
             .cheapest;
         while current_node != self.source_idx {
             let entry = self
@@ -290,10 +295,7 @@ impl AStarTree {
                                     destination_idx,
                                     graph,
                                 ),
-                            predecessor: Some(Predecessor {
-                                previous_bundle_idx: bundle_idx,
-                                edge_idx,
-                            }),
+                            predecessor: Some(Predecessor { edge_idx }),
                         },
                     );
                 }

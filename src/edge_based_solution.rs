@@ -1,5 +1,3 @@
-use rayon::slice::ParallelSliceMut;
-
 use crate::{common::Float, frank_wolfe::SolutionOps};
 
 #[derive(Clone)]
@@ -9,17 +7,6 @@ pub struct EdgeBasedSolution {
 }
 
 impl EdgeBasedSolution {
-    pub fn zero(num_edges: usize, num_permits: usize) -> Self {
-        EdgeBasedSolution {
-            edge_flow: vec![0.0; num_edges],
-            permit_flow: vec![0.0; num_permits],
-        }
-    }
-
-    pub fn num_edges(&self) -> usize {
-        self.edge_flow.len()
-    }
-
     pub fn edge_flow(&self) -> &Vec<Float> {
         &self.edge_flow
     }
@@ -40,12 +27,13 @@ impl EdgeBasedSolution {
             .iter()
             .zip(&other.edge_flow)
             .map(|(f1, f2)| f1 * f2)
-            .chain(self
-                .permit_flow
-                .iter()
-                .zip(&other.permit_flow)
-                .map(|(f1, f2)| f1 * f2))
-                .sum()
+            .chain(
+                self.permit_flow
+                    .iter()
+                    .zip(&other.permit_flow)
+                    .map(|(f1, f2)| f1 * f2),
+            )
+            .sum()
     }
 }
 

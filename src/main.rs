@@ -29,8 +29,6 @@ mod graph_ops;
 mod index;
 mod iter;
 mod main_carbon_pricing;
-mod path_based_solution;
-mod path_index;
 mod tntp;
 
 struct BMWFunction {}
@@ -42,13 +40,13 @@ impl BMWFunction {
         // = x * (toll + alpha) + alpha * beta / gamma^4 * [ (x + offset)^5 -
         // offset^5 ] / 5
 
-        x * (p.toll + p.alpha)
-            + p.alpha * p.beta / (5.0 * p.gamma.powi(4))
+        x * (p.toll + p.ff_time)
+            + p.ff_time * p.beta / (5.0 * p.capacity.powi(4))
                 * ((x + p.offset).powi(5) - p.offset.powi(5))
     }
 
     fn derivative(p: &EdgeParams, x: Float) -> Float {
-        p.toll + p.alpha * (1.0 + p.beta / (p.gamma.powi(4)) * (x + p.offset).powi(4))
+        p.toll + p.ff_time * (1.0 + p.beta / (p.capacity.powi(4)) * (x + p.offset).powi(4))
     }
 }
 
@@ -91,7 +89,7 @@ fn test() {
 
     let initial_solution = instance.compute_shortest_path_flow(
         &(0..graph.num_edges())
-            .map(|edge_idx| graph.edge(edge_idx).params.alpha)
+            .map(|edge_idx| graph.edge(edge_idx).params.ff_time)
             .collect::<Vec<_>>(),
         &vec![],
     );
