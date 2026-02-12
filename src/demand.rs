@@ -71,10 +71,14 @@ impl Demand {
         &self.commodities[commodity_idx]
     }
 
+    pub fn iter_by_origin(&self) -> impl Iterator<Item = (&NodeIdx, &Vec<CommodityIdx>)> {
+        self.commodities_by_origin.iter()
+    }
+
     pub fn par_iter_by_origin(
         &self,
-    ) -> impl ParallelIterator<Item = (&NodeIdx, &Vec<CommodityIdx>)> {
-        self.commodities_by_origin.par_iter()
+    ) -> impl ParallelIterator<Item = (&NodeIdx, &[CommodityIdx])> {
+        self.commodities_by_origin.par_iter().map(|(it, vec) | (it, vec.as_slice()))
     }
 
     pub fn check_solution(

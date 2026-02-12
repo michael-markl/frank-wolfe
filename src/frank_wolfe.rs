@@ -128,19 +128,34 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     0.5 * (low_alpha + high_alpha)
 }
 
+pub struct FrankWolfeResult<Solution> {
+    pub solution: Solution,
+    pub num_iterations: usize,
+    pub objective_value: Float,
+    pub optimality_gap: Float,
+    pub relative_optimality_gap: Float,
+}
+
 pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     initial_solution: Solution,
     instance: I,
-) -> Solution {
+) -> FrankWolfeResult<Solution> {
     let max_iterations: usize = 7000;
-    let rel_gap_tol: Float = 0.001 * 0.01; // 0.001% relative gap.
+    let rel_gap_tol: Float = 1e-5;
     let abs_gap_tol: Float = 1e-8;
 
     let mut cur_solution: Solution = initial_solution;
     let mut cur_obj_val: Float = instance.compute_objective(&cur_solution);
     let mut gap = Float::INFINITY;
 
-    for iteration in 0..max_iterations {
+    let mut iteration = 0;
+    loop {
+        if iteration >= max_iterations {
+            info!("Reached maximum number of iterations.");
+            break;
+        }
+        iteration += 1;
+
         let relative_gap = gap / cur_obj_val;
         trace!(
             "Before Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
@@ -215,7 +230,13 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         gap / cur_obj_val
     );
 
-    cur_solution
+    FrankWolfeResult {
+        solution: cur_solution,
+        num_iterations: iteration,
+        objective_value: cur_obj_val,
+        optimality_gap: gap,
+        relative_optimality_gap: gap / cur_obj_val,
+    }
 }
 
 #[cfg(test)]
@@ -305,7 +326,7 @@ mod tests {
         let initial_solution = SimpleSolution { x: 0.23, y: -0.3 };
         let instance = SimpleInstance;
 
-        let final_solution = solve_convex_program(initial_solution, instance);
+        let final_solution = solve_convex_program(initial_solution, instance).solution;
         assert!(final_solution.x.abs() < 1e-4);
         assert!(final_solution.y.abs() < 1e-4);
     }

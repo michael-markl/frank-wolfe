@@ -1,19 +1,24 @@
 use std::sync::RwLock;
 
+use accurate::{
+    dot::OnlineExactDot,
+    sum::OnlineExactSum,
+    traits::{DotWithAccumulator, SumWithAccumulator},
+};
 use clap_derive::Parser;
 use log::{error, info, trace};
 use rayon::iter::ParallelIterator;
 
 use crate::{
-    BMWFunction,
     astar::AStarTable,
+    bmw_function::BMWFunction,
     bundle_index::{Bundle, BundleIndex},
     col::{HashMap, map_new},
     common::{EdgeIdx, Float, PermitIdx},
     demand::{Demand, DemandOps},
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
-    frank_wolfe::solve_convex_program,
+    frank_wolfe::{FrankWolfeResult, solve_convex_program},
     graph::{EdgeParams, Graph},
     graph_ops::GraphOps,
     tntp::{read_net_file, read_trips_file},
@@ -211,6 +216,10 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         "total_consumption_inside",
         "total_entrances",
         "total_permit_flow",
+        "num_iterations",
+        "objective_value",
+        "gap",
+        "relative_gap",
     ])
     .unwrap();
     wtr.flush().unwrap();
@@ -223,8 +232,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         args.steps,
         tolls_strategy,
         args.reuse_solution,
-        |step, price, solution, graph| {
-            demand.check_solution(solution, graph);
+        |step, price, result, graph| {
+            demand.check_solution(&result.solution, graph);
 
             if let Some(flow_output_path_template) = &args.flow_output_path {
                 let flow_csv_path = if args.steps == 1 {
@@ -233,71 +242,83 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     let step = format!("{:03}", step);
                     flow_output_path_template.with_added_extension(step + ".csv")
                 };
-                write_flow_csv(solution, &flow_csv_path, graph)
+                write_flow_csv(&result.solution, &flow_csv_path, graph)
             }
 
-            let total_travel_time = solution
+            let total_travel_time = result
+                .solution
                 .edge_flow()
                 .iter()
                 .enumerate()
                 .map(|(edge_idx, &it)| {
-                    (BMWFunction::derivative(&graph.edge(edge_idx).params, it)
-                        - graph.edge(edge_idx).params.toll)
-                        * it
+                    (
+                        (BMWFunction::derivative(&graph.edge(edge_idx).params, it)
+                            - graph.edge(edge_idx).params.toll),
+                        it,
+                    )
                 })
-                .sum::<Float>();
+                .dot_with_accumulator::<OnlineExactDot<_>>();
 
-            let total_user_cost = solution
-                .edge_flow()
-                .iter()
-                .enumerate()
-                .map(|(edge_idx, &it)| {
-                    BMWFunction::derivative(&graph.edge(edge_idx).params, it) * it
-                })
-                .sum::<Float>()
-                + solution
-                    .permit_flow()
+            let total_user_cost =
+                result
+                    .solution
+                    .edge_flow()
                     .iter()
                     .enumerate()
-                    .map(|(permit_idx, &it)| {
-                        BMWFunction::derivative(&graph.permit(permit_idx).params, it)
+                    .map(|(edge_idx, &it)| {
+                        (
+                            BMWFunction::derivative(&graph.edge(edge_idx).params, it),
+                            it,
+                        )
                     })
-                    .sum::<Float>();
+                    .chain(result.solution.permit_flow().iter().enumerate().map(
+                        |(permit_idx, &it)| {
+                            (
+                                BMWFunction::derivative(&graph.permit(permit_idx).params, it),
+                                it,
+                            )
+                        },
+                    ))
+                    .dot_with_accumulator::<OnlineExactDot<_>>();
 
-            let total_consumption = solution
+            let total_consumption = result
+                .solution
                 .edge_flow()
                 .iter()
                 .enumerate()
-                .map(|(edge_idx, &it)| graph.edge(edge_idx).params.length * it)
-                .sum::<Float>();
+                .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
+                .dot_with_accumulator::<OnlineExactDot<_>>();
 
             let consumption_inside = cordon_pricing_map.as_ref().map(|map| {
-                solution
+                result
+                    .solution
                     .edge_flow()
                     .iter()
                     .enumerate()
                     .filter(|(edge_idx, _)| map.for_edge(*edge_idx).inside)
-                    .map(|(edge_idx, &it)| graph.edge(edge_idx).params.length * it)
-                    .sum::<Float>()
+                    .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
+                    .dot_with_accumulator::<OnlineExactDot<_>>()
             });
 
             let total_entrances = cordon_pricing_map.as_ref().map(|map| {
-                solution
+                result
+                    .solution
                     .edge_flow()
                     .iter()
                     .enumerate()
                     .filter(|(edge_idx, _)| map.for_edge(*edge_idx).leads_inside)
                     .map(|(_edge_idx, &it)| it)
-                    .sum::<Float>()
+                    .sum_with_accumulator::<OnlineExactSum<_>>()
             });
 
             let total_permit_flow = cordon_pricing_map.as_ref().map(|_| {
-                solution
+                result
+                    .solution
                     .permit_flow()
                     .iter()
                     .enumerate()
                     .map(|(_, &it)| it)
-                    .sum::<Float>()
+                    .sum_with_accumulator::<OnlineExactSum<_>>()
             });
 
             trace!(
@@ -314,6 +335,10 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 consumption_inside.map_or("".to_string(), |v| v.to_string()),
                 total_entrances.map_or("".to_string(), |v| v.to_string()),
                 total_permit_flow.map_or("".to_string(), |v| v.to_string()),
+                result.num_iterations.to_string(),
+                result.objective_value.to_string(),
+                result.optimality_gap.to_string(),
+                result.relative_optimality_gap.to_string(),
             ])
             .unwrap();
             wtr.flush().unwrap();
@@ -365,7 +390,7 @@ pub fn compute_solutions_for_price_range<'a>(
     steps: usize,
     tolls_strategy: impl TollsStrategy,
     reuse_solution: bool,
-    mut on_step: impl FnMut(usize, Float, &EdgeBasedSolution, &Graph),
+    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<EdgeBasedSolution>, &Graph),
 ) {
     let mut solution: Option<EdgeBasedSolution> = None;
 
@@ -397,9 +422,10 @@ pub fn compute_solutions_for_price_range<'a>(
             compute_initial_solution(graph, &instance)
         };
 
-        solution = Some(solve_convex_program(initial_solution, instance));
+        let result = solve_convex_program(initial_solution, instance);
 
-        on_step(step, price, solution.as_ref().unwrap(), graph);
+        on_step(step, price, &result, graph);
+        solution = Some(result.solution);
     }
 }
 

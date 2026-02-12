@@ -1,3 +1,5 @@
+use accurate::{dot::OnlineExactDot, traits::DotWithAccumulator};
+
 use crate::{common::Float, frank_wolfe::SolutionOps};
 
 #[derive(Clone)]
@@ -25,15 +27,15 @@ impl EdgeBasedSolution {
     pub fn inner_prod(&self, other: &Self) -> Float {
         self.edge_flow
             .iter()
-            .zip(&other.edge_flow)
-            .map(|(f1, f2)| f1 * f2)
+            .copied()
+            .zip(other.edge_flow.iter().copied())
             .chain(
                 self.permit_flow
                     .iter()
-                    .zip(&other.permit_flow)
-                    .map(|(f1, f2)| f1 * f2),
+                    .copied()
+                    .zip(other.permit_flow.iter().copied()),
             )
-            .sum()
+            .dot_with_accumulator::<OnlineExactDot<_>>()
     }
 }
 

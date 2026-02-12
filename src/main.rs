@@ -1,22 +1,27 @@
 use std::sync::RwLock;
 
+use accurate::{
+    dot::OnlineExactDot,
+    sum::OnlineExactSum,
+    traits::{DotWithAccumulator, SumWithAccumulator},
+};
 use clap::{Parser, Subcommand};
 use log::{error, info};
 
 use crate::{
     astar::AStarTable,
+    bmw_function::BMWFunction,
     bundle_index::BundleIndex,
-    common::Float,
     demand::DemandOps,
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     frank_wolfe::solve_convex_program,
-    graph::EdgeParams,
     graph_ops::GraphOps,
     main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
 };
 
 mod astar;
 mod astar_tree;
+mod bmw_function;
 mod bundle_index;
 mod col;
 mod common;
@@ -30,25 +35,6 @@ mod index;
 mod iter;
 mod main_carbon_pricing;
 mod tntp;
-
-struct BMWFunction {}
-
-impl BMWFunction {
-    fn evaluate(p: &EdgeParams, x: Float) -> Float {
-        // int_0^x toll + alpha (1 + beta * (y+offset/gamma)^4) dy
-        // = x * (toll + alpha) + alpha * beta / gamma^4 * int_0^y (y + offset)^4 dy
-        // = x * (toll + alpha) + alpha * beta / gamma^4 * [ (x + offset)^5 -
-        // offset^5 ] / 5
-
-        x * (p.toll + p.ff_time)
-            + p.ff_time * p.beta / (5.0 * p.capacity.powi(4))
-                * ((x + p.offset).powi(5) - p.offset.powi(5))
-    }
-
-    fn derivative(p: &EdgeParams, x: Float) -> Float {
-        p.toll + p.ff_time * (1.0 + p.beta / (p.capacity.powi(4)) * (x + p.offset).powi(4))
-    }
-}
 
 #[derive(Parser)]
 #[command(name = "frank-wolfe")]
@@ -94,16 +80,26 @@ fn test() {
         &vec![],
     );
 
-    let solution = solve_convex_program(initial_solution, instance);
+    let result = solve_convex_program(initial_solution, instance);
 
-    let total_travel_time = solution
+    let total_travel_time = result
+        .solution
         .edge_flow()
         .iter()
         .enumerate()
-        .map(|(edge_idx, &it)| BMWFunction::derivative(&graph.edge(edge_idx).params, it) * it)
-        .sum::<Float>();
+        .map(|(edge_idx, &it)| {
+            (
+                BMWFunction::derivative(&graph.edge(edge_idx).params, it),
+                it,
+            )
+        })
+        .dot_with_accumulator::<OnlineExactDot<_>>();
 
-    let total_demand = demand.commodities().iter().map(|c| c.demand).sum::<Float>();
+    let total_demand = demand
+        .commodities()
+        .iter()
+        .map(|c| c.demand)
+        .sum_with_accumulator::<OnlineExactSum<_>>();
 
     info!(
         "Total travel time under solution: {:.6e}",
@@ -120,7 +116,8 @@ fn test() {
     // Write solution to CSV file
     let mut wtr = csv::Writer::from_path("solution.csv").unwrap();
     wtr.write_record(["edge_idx", "flow"]).unwrap();
-    solution
+    result
+        .solution
         .edge_flow()
         .iter()
         .enumerate()

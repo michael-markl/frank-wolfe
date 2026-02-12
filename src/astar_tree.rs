@@ -155,6 +155,53 @@ impl AStarTree {
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
+        let _is_first = self.destination_idx.is_none();
+        let my_distance: f64 =
+            self.my_compute_distance(table, graph, demand, costs, destination_idx, bundles);
+        /*
+        let result = pathfinding::directed::dijkstra::dijkstra(
+            &self.source_idx,
+            |&node_idx| {
+                if node_idx == self.source_idx || graph.node_allows_through_traffic(node_idx) {
+                    graph
+                        .outgoing_edges(node_idx)
+                        .map(|edge_idx| {
+                            let head = graph.edge_head(edge_idx);
+                            let edge_cost = costs.get_edge_cost(edge_idx);
+                            (head, OrderedFloat(edge_cost))
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
+                }
+            },
+            |&node_idx| node_idx == demand.node_idx_by_destination(destination_idx),
+        );
+
+        let (path, path_cost) = result.unwrap();
+
+        assert!(
+            (path_cost.into_inner() - my_distance).abs() < 1e-8,
+            "A* distance {} differs from Dijkstra distance {} for destination {}, path: {:?}, is_first = {}",
+            my_distance,
+            path_cost.into_inner(),
+            destination_idx,
+            path,
+            is_first
+        );*/
+
+        my_distance
+    }
+
+    pub fn my_compute_distance(
+        &mut self,
+        table: &AStarTable,
+        graph: &impl GraphOps,
+        demand: &impl DemandOps,
+        costs: &impl ShortestPathCostOps,
+        destination_idx: DestinationIdx,
+        bundles: &RwLock<BundleIndex>,
+    ) -> Float {
         let destination_node_idx = demand.node_idx_by_destination(destination_idx);
 
         if destination_node_idx == self.source_idx {
@@ -166,6 +213,18 @@ impl AStarTree {
         }
 
         if self.destination_idx != Some(destination_idx) {
+            // TODO: Only recompute the entries in the queue that are affected by the change of destination, i.e., those with node_idx that cannot reach the new destination.
+            self.queue.clear();
+            self.distances.clear();
+            self.queue.push(
+                (self.source_idx, BUNDLE_IDX_EMPTY),
+                TreeEntry {
+                    max_cost_from_source: 0.0,
+                    cost_estimate_to_destination: 0.0,
+                    predecessor: None,
+                },
+            );
+
             self.destination_idx = Some(destination_idx);
             // Recompute the entry cost estimates in the queue.
             self.queue
@@ -217,7 +276,7 @@ impl AStarTree {
                         let previous = distance_entry
                             .by_bundle
                             .insert(bundle_idx, (entry.max_cost_from_source, predecessor));
-                        debug_assert!(
+                        assert!(
                             previous.is_none(),
                             "Node {} was reached multiple times with the same bundle idx {}, which should not happen in A*: {:?}",
                             node_idx,
@@ -247,20 +306,23 @@ impl AStarTree {
                     }
                     let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
                     // TODO: Handle empty set more efficiently.
-
-                    let guard = bundles.read().unwrap();
-                    let edge_bundle = guard.get_payload(edge_bundle_idx);
-                    let current_bundle = guard.get_payload(bundle_idx);
                     let mut additional_permits_cost = 0.0;
-                    for permit in edge_bundle.set_minus_iter(current_bundle) {
-                        additional_permits_cost += costs.get_permit_cost(*permit);
-                    }
-                    let new_bundle = edge_bundle.union(current_bundle);
+                    let mut new_bundle_idx = bundle_idx;
+                    if edge_bundle_idx != BUNDLE_IDX_EMPTY {
+                        let guard = bundles.read().unwrap();
+                        let edge_bundle = guard.get_payload(edge_bundle_idx);
+                        let current_bundle = guard.get_payload(bundle_idx);
+                        for permit in edge_bundle.set_minus_iter(current_bundle) {
+                            additional_permits_cost += costs.get_permit_cost(*permit);
+                        }
+                        let new_bundle = edge_bundle.union(current_bundle);
 
-                    let new_bundle_idx = guard.find_idx(&new_bundle);
-                    drop(guard);
-                    let new_bundle_idx = new_bundle_idx
-                        .unwrap_or_else(|| bundles.write().unwrap().transfer_element(new_bundle));
+                        let tmp_new_bundle_idx = guard.find_idx(&new_bundle);
+                        drop(guard);
+                        new_bundle_idx = tmp_new_bundle_idx.unwrap_or_else(|| {
+                            bundles.write().unwrap().transfer_element(new_bundle)
+                        });
+                    }
 
                     let edge_cost = costs.get_edge_cost(edge_idx);
                     let new_max_cost_from_source =
@@ -271,7 +333,7 @@ impl AStarTree {
                         .get(&head)
                         .and_then(|it| it.by_bundle.get(&new_bundle_idx))
                     {
-                        debug_assert!(
+                        assert!(
                             existing_entry.0 <= new_max_cost_from_source + 1e-8,
                             "New path to node {} with bundle idx {} has higher cost than existing path with same bundle idx: {} > {}",
                             head,
