@@ -20,6 +20,7 @@ pub trait ShortestPathCostOps {
 #[derive(Debug)]
 struct Predecessor {
     edge_idx: EdgeIdx,
+    prev_bundle_idx: BundleIdx
 }
 
 struct AStarTreeDistanceEntry {
@@ -132,14 +133,16 @@ impl AStarTree {
                 .as_str(),
             )
             .cheapest;
+        let mut current_bundle_idx = bundle_idx;
         while current_node != self.source_idx {
             let entry = self
                 .distances
                 .get(&current_node)
                 .expect("Current node must be reachable from source");
-            let (_bundle_idx, predecessor) = &entry.by_bundle[&entry.cheapest];
+            let (_distance, predecessor) = &entry.by_bundle[&current_bundle_idx];
             path.push(predecessor.edge_idx);
             current_node = graph.edge_tail(predecessor.edge_idx);
+            current_bundle_idx = predecessor.prev_bundle_idx;
         }
         path.reverse();
 
@@ -357,7 +360,7 @@ impl AStarTree {
                                     destination_idx,
                                     graph,
                                 ),
-                            predecessor: Some(Predecessor { edge_idx }),
+                            predecessor: Some(Predecessor { edge_idx, prev_bundle_idx: bundle_idx }),
                         },
                     );
                 }
