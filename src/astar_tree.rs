@@ -191,42 +191,6 @@ impl AStarTree {
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
-        let is_first = self.destination_idx.is_none();
-        let my_distance: Float =
-            self.my_compute_distance(table, graph, demand, costs, destination_idx, bundles);
-
-        // TODO: Remove this assertion.
-        let (path, path_cost) = from_dijkstra(
-            self.source_idx,
-            graph,
-            costs,
-            demand.node_idx_by_destination(destination_idx),
-            bundles,
-            None,
-        );
-
-        assert!(
-            (path_cost - my_distance).abs() < 1e-8,
-            "A* distance {} differs from Dijkstra distance {} for destination {}, path: {:?}, is_first = {}",
-            my_distance,
-            path_cost,
-            destination_idx,
-            path,
-            is_first
-        );
-
-        my_distance
-    }
-
-    pub fn my_compute_distance(
-        &mut self,
-        table: &AStarTable,
-        graph: &impl GraphOps,
-        demand: &impl DemandOps,
-        costs: &impl ShortestPathCostOps,
-        destination_idx: DestinationIdx,
-        bundles: &RwLock<BundleIndex>,
-    ) -> Float {
         let destination_node_idx = demand.node_idx_by_destination(destination_idx);
 
         if destination_node_idx == self.source_idx {

@@ -1,6 +1,6 @@
 use std::mem::swap;
 
-use log::{info, trace, warn};
+use log::{info, debug, warn};
 
 /// Returns the minimum of two values, if they are comparable, and otherwise returns the second value.
 ///
@@ -157,7 +157,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         iteration += 1;
 
         let relative_gap = gap / cur_obj_val;
-        trace!(
+        debug!(
             "Before Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
@@ -167,7 +167,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         gap = partial_min(gap, -linear_solution.inner_product);
         let relative_gap = gap / cur_obj_val;
 
-        trace!(
+        debug!(
             "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
             iteration, cur_obj_val, gap, relative_gap
         );
@@ -186,7 +186,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         }
 
         let step_size = line_search(&cur_solution, &linear_solution.direction, &instance);
-        trace!("Line search step size: {:.6e}", step_size);
+        debug!("Line search step size: {:.6e}", step_size);
         if step_size == 0.0 {
             warn!(
                 "Warning: step size is zero, but optimality goal not reached. We *should* be optimal."
