@@ -1,6 +1,7 @@
 use std::{collections::hash_map::Entry, sync::RwLock};
 
 use accurate::traits::SumWithAccumulator;
+use log::trace;
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 
@@ -28,6 +29,7 @@ struct Predecessor {
     prev_bundle_idx: BundleIdx,
 }
 
+#[derive(Debug)]
 struct AStarTreeDistanceEntry {
     by_bundle: HashMap<BundleIdx, (Float, Predecessor)>,
     cheapest: BundleIdx,
@@ -57,6 +59,12 @@ impl Ord for TreeEntry {
         other
             .cost_estimate_to_destination
             .total_cmp(&self.cost_estimate_to_destination)
+            // If both are INFINITY, then prefer a smaller max_cost_from_source.
+            // This makes sure that we can relax edges to nodes that don't reach the current destination.
+            // However, if the destination changes, we recompute the cost_estimate_to_destination based
+            // on the new destination.
+            // (Technically, we could just use a different priority_queue API when relaxing edges.)
+            .then_with(|| other.max_cost_from_source.total_cmp(&self.max_cost_from_source))
     }
 }
 
@@ -75,6 +83,8 @@ impl Eq for TreeEntry {}
 
 impl AStarTree {
     pub fn new(source_idx: NodeIdx) -> AStarTree {
+        trace!("Creating A* tree with source node {}", source_idx);
+
         let mut queue = PriorityQueue::<(NodeIdx, BundleIdx), TreeEntry>::new();
         queue.push(
             (source_idx, BUNDLE_IDX_EMPTY),
@@ -106,7 +116,7 @@ impl AStarTree {
         {
             table.get_lower_bound(node_idx, destination_idx)
         } else {
-            Float::MAX
+            Float::INFINITY
         }
     }
 
@@ -119,26 +129,23 @@ impl AStarTree {
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> (Float, Vec<EdgeIdx>, BundleIdx) {
-        let mut current_node = demand.node_idx_by_destination(destination_idx);
-        if current_node == self.source_idx {
+        let destination_node_idx = demand.node_idx_by_destination(destination_idx);
+        if destination_node_idx == self.source_idx {
             return (0.0, vec![], BUNDLE_IDX_EMPTY);
         }
 
         let distance = self.compute_distance(table, graph, demand, costs, destination_idx, bundles);
 
-        let mut path = vec![];
-        let bundle_idx = self
+        let destination_entry = self
             .distances
-            .get(&current_node)
-            .expect(
-                format!(
-                    "Destination {} must be reachable from source {}, distance = {}",
-                    destination_idx, self.source_idx, distance
-                )
-                .as_str(),
-            )
-            .cheapest;
-        let mut current_bundle_idx = bundle_idx;
+            .get(&destination_node_idx)
+            .expect("Destination must be reachable from source");
+
+
+        let mut path = vec![];
+
+        let mut current_node = destination_node_idx;
+        let mut current_bundle_idx = destination_entry.cheapest;
         while current_node != self.source_idx {
             let entry = self
                 .distances
@@ -151,7 +158,28 @@ impl AStarTree {
         }
         path.reverse();
 
-        (distance, path, bundle_idx)
+
+        // TODO: Remove this assertion in production.
+        let path_cost = path
+            .iter()
+            .map(|&edge_idx| costs.get_edge_cost(edge_idx))
+            .sum::<Float>()
+            + bundles
+                .read()
+                .unwrap()
+                .get_payload(destination_entry.cheapest)
+                .permits()
+                .map(|permit_idx| costs.get_permit_cost(permit_idx))
+                .sum::<Float>();
+        assert!(
+            (path_cost - distance).abs() < 1e-8,
+            "Reconstructed path cost {} differs from computed distance: {}, path: {:?}",
+            path_cost,
+            distance,
+            path
+        );
+
+        (distance, path, destination_entry.cheapest)
     }
 
     pub fn compute_distance(
@@ -164,38 +192,24 @@ impl AStarTree {
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
         let is_first = self.destination_idx.is_none();
-        let my_distance: f64 =
+        let my_distance: Float =
             self.my_compute_distance(table, graph, demand, costs, destination_idx, bundles);
 
-        let result = pathfinding::directed::dijkstra::dijkstra(
-            &(self.source_idx, BUNDLE_IDX_EMPTY),
-            |&(node_idx, bundle_idx)| {
-                if node_idx == self.source_idx || graph.node_allows_through_traffic(node_idx) {
-                    graph
-                        .outgoing_edges(node_idx)
-                        .map(|edge_idx| {
-                            let head = graph.edge_head(edge_idx);
-                            let (permit_aware_edge_cost, new_bundle_idx) =
-                                Self::permit_aware_edge_cost(
-                                    bundle_idx, edge_idx, costs, graph, bundles,
-                                );
-                            ((head, new_bundle_idx), OrderedFloat(permit_aware_edge_cost))
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![]
-                }
-            },
-            |&(node_idx, _bundle_idx)| node_idx == demand.node_idx_by_destination(destination_idx),
+        // TODO: Remove this assertion.
+        let (path, path_cost) = from_dijkstra(
+            self.source_idx,
+            graph,
+            costs,
+            demand.node_idx_by_destination(destination_idx),
+            bundles,
+            None,
         );
 
-        let (path, path_cost) = result.unwrap();
-
         assert!(
-            (path_cost.into_inner() - my_distance).abs() < 1e-8,
+            (path_cost - my_distance).abs() < 1e-8,
             "A* distance {} differs from Dijkstra distance {} for destination {}, path: {:?}, is_first = {}",
             my_distance,
-            path_cost.into_inner(),
+            path_cost,
             destination_idx,
             path,
             is_first
@@ -224,23 +238,12 @@ impl AStarTree {
         }
 
         if self.destination_idx != Some(destination_idx) {
-            // TODO: Only recompute the entries in the queue that are affected by the change of destination, i.e., those with node_idx that cannot reach the new destination.
-            self.queue.clear();
-            self.distances.clear();
-            self.queue.push(
-                (self.source_idx, BUNDLE_IDX_EMPTY),
-                TreeEntry {
-                    max_cost_from_source: 0.0,
-                    cost_estimate_to_destination: 0.0,
-                    predecessor: None,
-                },
-            );
-
             self.destination_idx = Some(destination_idx);
+            trace!("Destination changed to {}, {}", destination_idx, destination_node_idx);
             // Recompute the entry cost estimates in the queue.
             self.queue
                 .iter_mut()
-                .for_each(|((node_idx, _bundle_idx), entry)| {
+                .for_each(|((node_idx, bundle_idx), entry)| {
                     let lower_bound = Self::thru_aware_lower_bound(
                         self.source_idx,
                         table,
@@ -249,6 +252,7 @@ impl AStarTree {
                         destination_idx,
                         graph,
                     );
+                    trace!("Updating cost estimate for node {}, bundle {}, distance {:.3}, lower_bound: {:.3}, estimate from {:.3} to {:.3}", node_idx, bundle_idx, entry.max_cost_from_source, lower_bound, entry.cost_estimate_to_destination, entry.max_cost_from_source + lower_bound);
                     entry.cost_estimate_to_destination = entry.max_cost_from_source + lower_bound;
                 });
         }
@@ -272,6 +276,16 @@ impl AStarTree {
                 let predecessor = entry
                     .predecessor
                     .expect("Predecessor must be set for non-source nodes");
+
+                trace!("Settling node {}, bundle {}, distance from source: {:.3}, predecessor edge: {:?}, predecessor bundle: {}, pred node: {:?}",
+                    node_idx,
+                    bundle_idx,
+                    entry.max_cost_from_source,
+                    predecessor.edge_idx,
+                    predecessor.prev_bundle_idx,
+                    pred_node
+                );
+
                 let distance_entry = self.distances.entry(node_idx);
                 match distance_entry {
                     Entry::Vacant(vacant) => {
@@ -321,6 +335,27 @@ impl AStarTree {
                     let new_max_cost_from_source =
                         entry.max_cost_from_source + permit_aware_edge_cost;
 
+                    let cost_estimate_to_destination = new_max_cost_from_source
+                        + Self::thru_aware_lower_bound(
+                            self.source_idx,
+                            table,
+                            head,
+                            destination_node_idx,
+                            destination_idx,
+                            graph,
+                        );
+
+                    trace!("Relaxing edge {},{} -> {},{}, distance from source {:.3} + {:.3} = {:.3}, cost estimate to destination {:.3}",
+                        node_idx,
+                        bundle_idx,
+                        head,
+                        new_bundle_idx,
+                        entry.max_cost_from_source,
+                        permit_aware_edge_cost,
+                        new_max_cost_from_source,
+                        cost_estimate_to_destination
+                     );
+
                     if let Some(existing_entry) = self
                         .distances
                         .get(&head)
@@ -337,25 +372,26 @@ impl AStarTree {
                         continue;
                     }
 
-                    self.queue.push_increase(
+                    let res = self.queue.push_increase(
                         (head, new_bundle_idx),
                         TreeEntry {
                             max_cost_from_source: new_max_cost_from_source,
-                            cost_estimate_to_destination: new_max_cost_from_source
-                                + Self::thru_aware_lower_bound(
-                                    self.source_idx,
-                                    table,
-                                    head,
-                                    destination_node_idx,
-                                    destination_idx,
-                                    graph,
-                                ),
+                            cost_estimate_to_destination,
                             predecessor: Some(Predecessor {
                                 edge_idx,
                                 prev_bundle_idx: bundle_idx,
                             }),
                         },
                     );
+                    if let Some(hi) = res {
+                        if hi.max_cost_from_source != new_max_cost_from_source || hi.cost_estimate_to_destination != cost_estimate_to_destination {
+                            trace!(
+                                "Existing priority ({:.3}, {:.3}) was overwritten.",
+                                hi.max_cost_from_source,
+                                hi.cost_estimate_to_destination
+                            );
+                        }
+                    }
                 }
             }
 
@@ -399,5 +435,216 @@ impl AStarTree {
         let new_bundle_idx = tmp_new_bundle_idx
             .unwrap_or_else(|| bundles.write().unwrap().transfer_element(new_bundle));
         (edge_cost + additional_permits_cost, new_bundle_idx)
+    }
+}
+
+fn from_dijkstra(
+    source_idx: NodeIdx,
+    graph: &impl GraphOps,
+    costs: &impl ShortestPathCostOps,
+    dest_node_idx: NodeIdx,
+    bundles: &RwLock<BundleIndex>,
+    destination_bundle: Option<BundleIdx>,
+) -> (Vec<(NodeIdx, BundleIdx)>, Float) {
+    let result = pathfinding::directed::dijkstra::dijkstra(
+        &(source_idx, BUNDLE_IDX_EMPTY),
+        |&(node_idx, bundle_idx)| {
+            if node_idx == source_idx || graph.node_allows_through_traffic(node_idx) {
+                graph
+                    .outgoing_edges(node_idx)
+                    .map(|edge_idx| {
+                        let head = graph.edge_head(edge_idx);
+                        let (permit_aware_edge_cost, new_bundle_idx) =
+                            AStarTree::permit_aware_edge_cost(
+                                bundle_idx, edge_idx, costs, graph, bundles,
+                            );
+                        ((head, new_bundle_idx), OrderedFloat(permit_aware_edge_cost))
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            }
+        },
+        |&(node_idx, bundle_idx)| {
+            node_idx == dest_node_idx && (destination_bundle.is_none_or(|it| it == bundle_idx))
+        },
+    );
+    let (path, distance) = result.unwrap();
+    (path, distance.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestGraph {
+        edges: Vec<(NodeIdx, NodeIdx)>, // (tail, head)
+        edge_costs: Vec<Float>,
+    }
+
+    impl TestGraph {
+        fn new() -> Self {
+            TestGraph {
+                edges: Vec::new(),
+                edge_costs: Vec::new(),
+            }
+        }
+
+        fn add_edge(&mut self, tail: NodeIdx, head: NodeIdx, cost: Float) -> EdgeIdx {
+            let edge_idx = self.edges.len();
+            self.edges.push((tail, head));
+            self.edge_costs.push(cost);
+            edge_idx
+        }
+
+        fn build_outgoing_edges(&self) -> Vec<Vec<EdgeIdx>> {
+            let max_node = self
+                .edges
+                .iter()
+                .map(|(tail, head)| (*tail).max(*head))
+                .max()
+                .unwrap_or(0);
+            let mut outgoing = vec![Vec::new(); max_node + 1];
+            for (edge_idx, (tail, _)) in self.edges.iter().enumerate() {
+                outgoing[*tail].push(edge_idx);
+            }
+            outgoing
+        }
+    }
+
+    impl GraphOps for TestGraph {
+        fn num_edges(&self) -> usize {
+            self.edges.len()
+        }
+
+        fn num_nodes(&self) -> usize {
+            self.edges
+                .iter()
+                .map(|(tail, head)| (*tail).max(*head))
+                .max()
+                .map(|m| m + 1)
+                .unwrap_or(0)
+        }
+
+        fn num_permits(&self) -> usize {
+            0
+        }
+
+        fn incoming_edges(&self, _node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx> {
+            std::iter::empty()
+        }
+
+        fn outgoing_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx> {
+            self.edges
+                .iter()
+                .enumerate()
+                .filter(move |(_, (tail, _))| *tail == node_idx)
+                .map(|(edge_idx, _)| edge_idx)
+        }
+
+        fn edge_cost_lower_bound(&self, _edge_idx: EdgeIdx) -> Float {
+            0.0
+        }
+
+        fn edge_tail(&self, edge_idx: EdgeIdx) -> NodeIdx {
+            self.edges[edge_idx].0
+        }
+
+        fn edge_head(&self, edge_idx: EdgeIdx) -> NodeIdx {
+            self.edges[edge_idx].1
+        }
+
+        fn edge_bundle(&self, _edge_idx: EdgeIdx) -> BundleIdx {
+            BUNDLE_IDX_EMPTY
+        }
+
+        fn node_allows_through_traffic(&self, _node_idx: NodeIdx) -> bool {
+            true
+        }
+    }
+
+    struct TestDemand {
+        destinations: Vec<NodeIdx>,
+    }
+
+    impl TestDemand {
+        fn new(destinations: Vec<NodeIdx>) -> Self {
+            TestDemand { destinations }
+        }
+    }
+
+    impl DemandOps for TestDemand {
+        fn node_idx_by_destination(&self, destination_idx: DestinationIdx) -> NodeIdx {
+            self.destinations[destination_idx]
+        }
+
+        fn num_destinations(&self) -> usize {
+            self.destinations.len()
+        }
+    }
+
+    impl ShortestPathCostOps for TestGraph {
+        fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
+            self.edge_costs[edge_idx]
+        }
+
+        fn get_permit_cost(&self, _permit_idx: PermitIdx) -> Float {
+            0.0
+        }
+    }
+
+    #[test]
+    fn test_compute_distance_same_source_different_destinations() {
+        // Create a more complex graph with multiple paths:
+        //             1 ----> 4 ----> 5 (dest 0)
+        //          1 /    2 /     3
+        //           /      /
+        // (source) 0     5/
+        //           \    /
+        //          4 \  / 6
+        //             2 ----> 3 (dest 1)
+        //
+        // Path to 5: 0->1->4->5 (costs: 1 + 2 + 3 = 6) or 0->2->4->5 (costs: 4 + 5 + 3 = 12)
+        // Path to 3: 0->2->3 (costs: 4 + 6 = 10)
+
+        let mut graph = TestGraph::new();
+        let edge_0_1 = graph.add_edge(0, 1, 1.0); // cost 1
+        let edge_0_2 = graph.add_edge(0, 2, 4.0); // cost 4
+        let edge_1_4 = graph.add_edge(1, 4, 2.0); // cost 2
+        let edge_2_4 = graph.add_edge(2, 4, 5.0); // cost 5
+        let edge_4_5 = graph.add_edge(4, 5, 3.0); // cost 3
+        let edge_2_3 = graph.add_edge(2, 3, 6.0); // cost 6
+
+        // Create a table for lower bounds (all zeros)
+        let mut table = AStarTable::create(graph.num_nodes(), 2);
+
+        // Create demand: destination 0 is node 5, destination 1 is node 3
+        let demand = TestDemand::new(vec![5, 3]);
+
+        // Create bundle index
+        let bundles = RwLock::new(BundleIndex::new());
+
+        // Create A* tree with source 0
+        let mut tree = AStarTree::new(0);
+
+        // Compute distance to destination 0 (node 5)
+        let dist_to_dest_0 = tree.compute_distance(&table, &graph, &demand, &graph, 0, &bundles);
+
+        // Compute distance to destination 1 (node 3)
+        let dist_to_dest_1 = tree.compute_distance(&table, &graph, &demand, &graph, 1, &bundles);
+
+        // Expected shortest path to node 5: 0->1->4->5 (costs: 1 + 2 + 3 = 6)
+        assert!(
+            (dist_to_dest_0 - 6.0).abs() < 1e-8,
+            "Distance to destination 0 should be 6.0, got {}",
+            dist_to_dest_0
+        );
+
+        // Expected shortest path to node 3: 0->2->3 (costs: 4 + 6 = 10)
+        assert!(
+            (dist_to_dest_1 - 10.0).abs() < 1e-8,
+            "Distance to destination 1 should be 10.0, got {}",
+            dist_to_dest_1
+        );
     }
 }

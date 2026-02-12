@@ -46,9 +46,9 @@ fn fill_row(
     distances: &mut [Float],
     destination_idx: DestinationIdx,
 ) {
-    // Use Float::MAX as earliest arrival for nodes not reaching the destination.
+    // Use Float::INFINITY as earliest arrival for nodes not reaching the destination.
     for it in distances.iter_mut() {
-        *it = Float::MAX;
+        *it = Float::INFINITY;
     }
 
     let destination_node_idx = demand.node_idx_by_destination(destination_idx);
@@ -90,7 +90,7 @@ fn fill_row(
         if node_idx == destination_node_idx || graph.node_allows_through_traffic(node_idx) {
             for edge_idx in graph.incoming_edges(node_idx) {
                 let tail_idx = graph.edge_tail(edge_idx);
-                if distances[tail_idx] != Float::MAX {
+                if distances[tail_idx] != Float::INFINITY {
                     // Already settled
                     debug_assert!(
                         distances[tail_idx] <= cost + graph.edge_cost_lower_bound(edge_idx),
