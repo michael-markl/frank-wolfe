@@ -105,6 +105,17 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     let mut node_idx_by_id = map_new();
     let mut graph = Graph::empty();
 
+    struct RawEdge {
+        tail_node: usize,
+        head_node: usize,
+        capacity: Float,
+        length: Float,
+        free_flow_time: Float,
+        b: Float,
+    }
+
+    let mut raw_edges = vec![];
+
     for (line_idx, line) in lines_iter {
         let line =
             line.map_err(|err| format!("Failed to read net file {}: {}", path.display(), err))?;
@@ -141,23 +152,45 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
             .parse::<Float>()
             .map_err(|err| format!("Line {:}: Invalid b value: {}", line_idx, err))?;
 
-        let tail_node_idx = *node_idx_by_id
-            .entry(tail_node)
-            .or_insert_with(|| graph.add_node(first_thru_node.is_none_or(|it| tail_node >= it)));
-        let head_node_idx = *node_idx_by_id
-            .entry(head_node)
-            .or_insert_with(|| graph.add_node(first_thru_node.is_none_or(|it| head_node >= it)));
-        let edge_params = EdgeParams {
-            toll: 0.0,
-            offset: 0.0,
-            ff_time: free_flow_time,
-            beta: b,
+        raw_edges.push(RawEdge {
+            tail_node,
+            head_node,
             capacity,
             length,
-        };
-        graph
-            .add_edge(tail_node_idx, head_node_idx, BUNDLE_IDX_EMPTY, edge_params)
-            .expect("Node indices are valid");
+            free_flow_time,
+            b,
+        });
+    }
+
+    let mut all_node_ids = raw_edges
+        .iter()
+        .flat_map(|edge| [edge.tail_node, edge.head_node])
+        .collect::<Vec<usize>>();
+    all_node_ids.sort();
+    all_node_ids.dedup();
+
+    for node_id in all_node_ids {
+        let allow_thru = first_thru_node.map_or(true, |first| node_id >= first);
+        let node_idx = graph.add_node(allow_thru);
+        node_idx_by_id.insert(node_id, node_idx);
+    }
+
+    for edge in raw_edges {
+        let tail_idx = *node_idx_by_id.get(&edge.tail_node).unwrap();
+        let head_idx = *node_idx_by_id.get(&edge.head_node).unwrap();
+        graph.add_edge(
+            tail_idx,
+            head_idx,
+            BUNDLE_IDX_EMPTY,
+            EdgeParams {
+                capacity: edge.capacity,
+                length: edge.length,
+                toll: 0.0,
+                offset: 0.0,
+                ff_time: edge.free_flow_time,
+                beta: edge.b,
+            },
+        ).expect("Node indices are valid");
     }
 
     Ok(TNTPNet {
