@@ -1,8 +1,6 @@
 use std::sync::RwLock;
 
 use accurate::{
-    dot::OnlineExactDot,
-    sum::OnlineExactSum,
     traits::{DotWithAccumulator, SumWithAccumulator},
 };
 use clap_derive::Parser;
@@ -14,7 +12,7 @@ use crate::{
     bmw_function::BMWFunction,
     bundle_index::{Bundle, BundleIndex},
     col::{HashMap, map_new},
-    common::{EdgeIdx, Float, PermitIdx},
+    common::{EdgeIdx, Float, MyDotAccumulator, MySumAccumulator, PermitIdx},
     demand::{Demand, DemandOps},
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
@@ -257,7 +255,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                         it,
                     )
                 })
-                .dot_with_accumulator::<OnlineExactDot<_>>();
+                .dot_with_accumulator::<MyDotAccumulator>();
 
             let total_user_cost =
                 result
@@ -279,7 +277,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                             )
                         },
                     ))
-                    .dot_with_accumulator::<OnlineExactDot<_>>();
+                    .dot_with_accumulator::<MyDotAccumulator>();
 
             let total_consumption = result
                 .solution
@@ -287,7 +285,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 .iter()
                 .enumerate()
                 .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
-                .dot_with_accumulator::<OnlineExactDot<_>>();
+                .dot_with_accumulator::<MyDotAccumulator>();
 
             let consumption_inside = cordon_pricing_map.as_ref().map(|map| {
                 result
@@ -297,7 +295,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .enumerate()
                     .filter(|(edge_idx, _)| map.for_edge(*edge_idx).inside)
                     .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
-                    .dot_with_accumulator::<OnlineExactDot<_>>()
+                    .dot_with_accumulator::<MyDotAccumulator>()
             });
 
             let total_entrances = cordon_pricing_map.as_ref().map(|map| {
@@ -308,7 +306,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .enumerate()
                     .filter(|(edge_idx, _)| map.for_edge(*edge_idx).leads_inside)
                     .map(|(_edge_idx, &it)| it)
-                    .sum_with_accumulator::<OnlineExactSum<_>>()
+                    .sum_with_accumulator::<MySumAccumulator>()
             });
 
             let total_permit_flow = cordon_pricing_map.as_ref().map(|_| {
@@ -318,7 +316,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .iter()
                     .enumerate()
                     .map(|(_, &it)| it)
-                    .sum_with_accumulator::<OnlineExactSum<_>>()
+                    .sum_with_accumulator::<MySumAccumulator>()
             });
 
             trace!(

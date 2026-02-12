@@ -1,6 +1,6 @@
-use accurate::{dot::OnlineExactDot, traits::DotWithAccumulator};
+use accurate::{traits::DotWithAccumulator};
 
-use crate::{common::Float, frank_wolfe::SolutionOps};
+use crate::{common::{Float, MyDotAccumulator}, frank_wolfe::SolutionOps};
 
 #[derive(Clone)]
 pub struct EdgeBasedSolution {
@@ -35,7 +35,7 @@ impl EdgeBasedSolution {
                     .copied()
                     .zip(other.permit_flow.iter().copied()),
             )
-            .dot_with_accumulator::<OnlineExactDot<_>>()
+            .dot_with_accumulator::<MyDotAccumulator>()
     }
 }
 

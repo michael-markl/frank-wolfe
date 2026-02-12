@@ -1,13 +1,12 @@
 use std::sync::RwLock;
 
 use accurate::dot::traits::DotWithAccumulator;
+use accurate::traits::{SumAccumulator, SumWithAccumulator};
 use accurate::{
-    dot::OnlineExactDot,
-    sum::OnlineExactSum,
-    traits::{SumAccumulator, SumWithAccumulator},
 };
 use rayon::iter::ParallelIterator;
 
+use crate::common::{MyDotAccumulator, MySumAccumulator};
 use crate::{
     BMWFunction,
     astar::AStarTable,
@@ -48,9 +47,9 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
 
         let costs = Costs(edge_costs, permit_costs);
         let mut edge_flow =
-            vec![accurate::sum::OnlineExactSum::zero(); self.graph.num_edges()];
+            vec![MySumAccumulator::zero(); self.graph.num_edges()];
         let mut permit_flow =
-            vec![accurate::sum::OnlineExactSum::zero(); self.graph.num_permits()];
+            vec![MySumAccumulator::zero(); self.graph.num_permits()];
 
         let results = self
             .demand
@@ -116,7 +115,7 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
                     })
                     .zip(direction.permit_flow().iter().copied()),
             )
-            .dot_with_accumulator::<OnlineExactDot<_>>()
+            .dot_with_accumulator::<MyDotAccumulator>()
     }
 
     fn compute_objective(&self, solution: &EdgeBasedSolution) -> Float {
@@ -134,7 +133,7 @@ impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
                         BMWFunction::evaluate(&self.graph.permit(permit_idx).params, it)
                     }),
             )
-            .sum_with_accumulator::<OnlineExactSum<_>>()
+            .sum_with_accumulator::<MySumAccumulator>()
     }
 
     fn solve_subproblem(

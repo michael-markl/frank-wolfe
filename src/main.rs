@@ -1,22 +1,13 @@
 use std::sync::RwLock;
 
 use accurate::{
-    dot::OnlineExactDot,
-    sum::OnlineExactSum,
     traits::{DotWithAccumulator, SumWithAccumulator},
 };
 use clap::{Parser, Subcommand};
 use log::{error, info};
 
 use crate::{
-    astar::AStarTable,
-    bmw_function::BMWFunction,
-    bundle_index::BundleIndex,
-    demand::DemandOps,
-    edge_based_convex_program::EdgeBasedConvexProgramInstance,
-    frank_wolfe::solve_convex_program,
-    graph_ops::GraphOps,
-    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
+    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{MyDotAccumulator, MySumAccumulator}, demand::DemandOps, edge_based_convex_program::EdgeBasedConvexProgramInstance, frank_wolfe::solve_convex_program, graph_ops::GraphOps, main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing}
 };
 
 mod astar;
@@ -93,13 +84,13 @@ fn test() {
                 it,
             )
         })
-        .dot_with_accumulator::<OnlineExactDot<_>>();
+        .dot_with_accumulator::<MyDotAccumulator>();
 
     let total_demand = demand
         .commodities()
         .iter()
         .map(|c| c.demand)
-        .sum_with_accumulator::<OnlineExactSum<_>>();
+        .sum_with_accumulator::<MySumAccumulator>();
 
     info!(
         "Total travel time under solution: {:.6e}",
