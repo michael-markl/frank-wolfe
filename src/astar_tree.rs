@@ -1,12 +1,17 @@
 use std::{collections::hash_map::Entry, sync::RwLock};
 
+use accurate::traits::SumWithAccumulator;
+use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 
 use crate::{
     astar::AStarTable,
     bundle_index::BundleIndex,
     col::{HashMap, map_new},
-    common::{BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, NodeIdx, PermitIdx},
+    common::{
+        BUNDLE_IDX_EMPTY, BundleIdx, DestinationIdx, EdgeIdx, Float, MySumAccumulator, NodeIdx,
+        PermitIdx,
+    },
     demand::DemandOps,
     graph_ops::GraphOps,
 };
@@ -20,7 +25,7 @@ pub trait ShortestPathCostOps {
 #[derive(Debug)]
 struct Predecessor {
     edge_idx: EdgeIdx,
-    prev_bundle_idx: BundleIdx
+    prev_bundle_idx: BundleIdx,
 }
 
 struct AStarTreeDistanceEntry {
@@ -158,27 +163,30 @@ impl AStarTree {
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
-        let _is_first = self.destination_idx.is_none();
+        let is_first = self.destination_idx.is_none();
         let my_distance: f64 =
             self.my_compute_distance(table, graph, demand, costs, destination_idx, bundles);
-        /*
+
         let result = pathfinding::directed::dijkstra::dijkstra(
-            &self.source_idx,
-            |&node_idx| {
+            &(self.source_idx, BUNDLE_IDX_EMPTY),
+            |&(node_idx, bundle_idx)| {
                 if node_idx == self.source_idx || graph.node_allows_through_traffic(node_idx) {
                     graph
                         .outgoing_edges(node_idx)
                         .map(|edge_idx| {
                             let head = graph.edge_head(edge_idx);
-                            let edge_cost = costs.get_edge_cost(edge_idx);
-                            (head, OrderedFloat(edge_cost))
+                            let (permit_aware_edge_cost, new_bundle_idx) =
+                                Self::permit_aware_edge_cost(
+                                    bundle_idx, edge_idx, costs, graph, bundles,
+                                );
+                            ((head, new_bundle_idx), OrderedFloat(permit_aware_edge_cost))
                         })
                         .collect::<Vec<_>>()
                 } else {
                     vec![]
                 }
             },
-            |&node_idx| node_idx == demand.node_idx_by_destination(destination_idx),
+            |&(node_idx, _bundle_idx)| node_idx == demand.node_idx_by_destination(destination_idx),
         );
 
         let (path, path_cost) = result.unwrap();
@@ -191,7 +199,7 @@ impl AStarTree {
             destination_idx,
             path,
             is_first
-        );*/
+        );
 
         my_distance
     }
@@ -307,29 +315,11 @@ impl AStarTree {
                     if head == self.source_idx {
                         continue;
                     }
-                    let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
-                    // TODO: Handle empty set more efficiently.
-                    let mut additional_permits_cost = 0.0;
-                    let mut new_bundle_idx = bundle_idx;
-                    if edge_bundle_idx != BUNDLE_IDX_EMPTY {
-                        let guard = bundles.read().unwrap();
-                        let edge_bundle = guard.get_payload(edge_bundle_idx);
-                        let current_bundle = guard.get_payload(bundle_idx);
-                        for permit in edge_bundle.set_minus_iter(current_bundle) {
-                            additional_permits_cost += costs.get_permit_cost(*permit);
-                        }
-                        let new_bundle = edge_bundle.union(current_bundle);
 
-                        let tmp_new_bundle_idx = guard.find_idx(&new_bundle);
-                        drop(guard);
-                        new_bundle_idx = tmp_new_bundle_idx.unwrap_or_else(|| {
-                            bundles.write().unwrap().transfer_element(new_bundle)
-                        });
-                    }
-
-                    let edge_cost = costs.get_edge_cost(edge_idx);
+                    let (permit_aware_edge_cost, new_bundle_idx) =
+                        Self::permit_aware_edge_cost(bundle_idx, edge_idx, costs, graph, bundles);
                     let new_max_cost_from_source =
-                        entry.max_cost_from_source + edge_cost + additional_permits_cost;
+                        entry.max_cost_from_source + permit_aware_edge_cost;
 
                     if let Some(existing_entry) = self
                         .distances
@@ -360,7 +350,10 @@ impl AStarTree {
                                     destination_idx,
                                     graph,
                                 ),
-                            predecessor: Some(Predecessor { edge_idx, prev_bundle_idx: bundle_idx }),
+                            predecessor: Some(Predecessor {
+                                edge_idx,
+                                prev_bundle_idx: bundle_idx,
+                            }),
                         },
                     );
                 }
@@ -376,5 +369,35 @@ impl AStarTree {
             "No path found from source node {} to destination node {}, idx {}",
             self.source_idx, destination_node_idx, destination_idx
         );
+    }
+
+    /// Returns the cost and a new bundle idx for traversing the edge, which may require the purchase of additional permits.
+    fn permit_aware_edge_cost(
+        from_bundle_idx: BundleIdx,
+        edge_idx: EdgeIdx,
+        costs: &impl ShortestPathCostOps,
+        graph: &impl GraphOps,
+        bundles: &RwLock<BundleIndex>,
+    ) -> (Float, BundleIdx) {
+        let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
+        let edge_cost = costs.get_edge_cost(edge_idx);
+        if edge_bundle_idx == BUNDLE_IDX_EMPTY {
+            return (edge_cost, from_bundle_idx);
+        }
+
+        let guard = bundles.read().unwrap();
+        let edge_bundle = guard.get_payload(edge_bundle_idx);
+        let from_bundle = guard.get_payload(from_bundle_idx);
+        let additional_permits_cost = edge_bundle
+            .set_minus_iter(from_bundle)
+            .map(|&it| costs.get_permit_cost(it))
+            .sum_with_accumulator::<MySumAccumulator>();
+        let new_bundle = edge_bundle.union(from_bundle);
+
+        let tmp_new_bundle_idx = guard.find_idx(&new_bundle);
+        drop(guard);
+        let new_bundle_idx = tmp_new_bundle_idx
+            .unwrap_or_else(|| bundles.write().unwrap().transfer_element(new_bundle));
+        (edge_cost + additional_permits_cost, new_bundle_idx)
     }
 }
