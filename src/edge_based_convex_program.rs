@@ -26,6 +26,17 @@ pub struct EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
 }
 
 impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
+
+    pub fn compute_initial_solution(&self) -> EdgeBasedSolution {
+        let edge_costs: Vec<f64> = (0..self.graph.num_edges())
+            .map(|edge_idx| BMWFunction::derivative(&self.graph.edge(edge_idx).params, 0.0))
+            .collect::<Vec<_>>();
+        let permit_costs = (0..self.graph.num_permits())
+            .map(|permit_idx| BMWFunction::derivative(&self.graph.permit(permit_idx).params, 0.0))
+            .collect::<Vec<_>>();
+        self.compute_shortest_path_flow(&edge_costs, &permit_costs)
+    }
+
     pub fn compute_shortest_path_flow(
         &self,
         edge_costs: &Vec<Float>,

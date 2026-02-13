@@ -326,7 +326,7 @@ mod tests {
         let initial_solution = SimpleSolution { x: 0.23, y: -0.3 };
         let instance = SimpleInstance;
 
-        let final_solution = solve_convex_program(initial_solution, instance).solution;
+        let final_solution = solve_convex_program(initial_solution, instance, 0.0, 100).solution;
         assert!(final_solution.x.abs() < 1e-4);
         assert!(final_solution.y.abs() < 1e-4);
     }

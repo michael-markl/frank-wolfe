@@ -17,7 +17,7 @@ use crate::{
     frank_wolfe::{FrankWolfeResult, solve_convex_program},
     graph::{EdgeParams, Graph},
     graph_ops::GraphOps,
-    tntp::{read_net_file, read_trips_file},
+    io::tntp::{read_net_file, read_trips_file},
 };
 
 #[derive(Parser, Debug)]
@@ -250,7 +250,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         args.steps,
         tolls_strategy,
         args.rel_gap,
-        args.max_iter
+        args.max_iter,
         args.reuse_solution,
         |step, price, result, graph| {
             demand.check_solution(&result.solution, graph);
@@ -438,9 +438,9 @@ pub fn compute_solutions_for_price_range<'a>(
         let initial_solution = if reuse_solution {
             solution
                 .take()
-                .unwrap_or_else(|| compute_initial_solution(graph, &instance))
+                .unwrap_or_else(|| instance.compute_initial_solution())
         } else {
-            compute_initial_solution(graph, &instance)
+            instance.compute_initial_solution()
         };
 
         let result = solve_convex_program(initial_solution, instance, rel_gap, max_iter);
@@ -450,18 +450,6 @@ pub fn compute_solutions_for_price_range<'a>(
     }
 }
 
-fn compute_initial_solution(
-    graph: &Graph,
-    instance: &EdgeBasedConvexProgramInstance,
-) -> EdgeBasedSolution {
-    let edge_costs = (0..graph.num_edges())
-        .map(|edge_idx| BMWFunction::derivative(&graph.edge(edge_idx).params, 0.0))
-        .collect::<Vec<_>>();
-    let permit_costs = (0..graph.num_permits())
-        .map(|permit_idx| BMWFunction::derivative(&graph.permit(permit_idx).params, 0.0))
-        .collect::<Vec<_>>();
-    instance.compute_shortest_path_flow(&edge_costs, &permit_costs)
-}
 
 struct CarbonPricing {}
 
