@@ -1,10 +1,13 @@
+use std::cell::UnsafeCell;
 use std::sync::RwLock;
 
 use accurate::dot::traits::DotWithAccumulator;
 use accurate::traits::{SumAccumulator, SumWithAccumulator};
-use rayon::iter::ParallelIterator;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
-use crate::common::{MyDotAccumulator, MySumAccumulator};
+use thread_local::ThreadLocal;
+
+use crate::common::{BUNDLE_IDX_EMPTY, MyDotAccumulator, MySumAccumulator};
 use crate::{
     BMWFunction,
     astar::AStarTable,
@@ -26,7 +29,6 @@ pub struct EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
 }
 
 impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
-
     pub fn compute_initial_solution(&self) -> EdgeBasedSolution {
         let edge_costs: Vec<f64> = (0..self.graph.num_edges())
             .map(|edge_idx| BMWFunction::derivative(&self.graph.edge(edge_idx).params, 0.0))
@@ -55,16 +57,20 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
         }
 
         let costs = Costs(edge_costs, permit_costs);
-        let mut edge_flow = vec![MySumAccumulator::zero(); self.graph.num_edges()];
-        let mut permit_flow = vec![MySumAccumulator::zero(); self.graph.num_permits()];
 
-        let results = self
-            .demand
-            .par_iter_by_origin()
-            .map(|(&origin, commodity_indices)| {
+        let init_flows = || {
+            (
+                vec![MySumAccumulator::zero(); self.graph.num_edges()],
+                vec![MySumAccumulator::zero(); self.graph.num_permits()],
+            )
+        };
+
+        let flows_iterator = self.demand.par_iter_by_origin().for_each_with_thread_local(
+            init_flows,
+            |(&origin, commodity_indices), (edge_flow, permit_flow)| {
                 let mut tree = AStarTree::new(origin, self.astar_table);
                 let costs = &costs;
-                commodity_indices.iter().map(move |&commodity_idx| {
+                commodity_indices.iter().for_each(move |&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let destination_idx = commodity.destination_idx;
                     let (_cost, path, bundle_idx) = tree.compute_shortest_path(
@@ -74,28 +80,64 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
                         destination_idx,
                         self.bundle_index,
                     );
-                    (path, bundle_idx, commodity.demand)
-                })
-            })
-            .flatten_iter()
-            .collect::<Vec<_>>();
+                    for edge_idx in path {
+                        edge_flow[edge_idx] += commodity.demand;
+                    }
+                    if bundle_idx != BUNDLE_IDX_EMPTY {
+                        let binding = self.bundle_index.read().unwrap();
+                        let bundle = binding.get_payload(bundle_idx);
+                        for permit_idx in bundle.permits() {
+                            permit_flow[permit_idx] += commodity.demand;
+                        }
+                    }
+                });
+            },
+        );
 
-        for (path, bundle_idx, demand) in results.into_iter() {
-            for edge_idx in path {
-                edge_flow[edge_idx] += demand;
-            }
-            let binding = self.bundle_index.read().unwrap();
-            let bundle = binding.get_payload(bundle_idx);
-            for permit_idx in bundle.permits() {
-                permit_flow[permit_idx] += demand;
-            }
-            drop(binding);
-        }
+        let (edge_flow, permit_flow) =
+            flows_iterator
+                .par_bridge()
+                .reduce(init_flows, |acc, (edge_flow, permit_flow)| {
+                    let (mut edge_flow_acc, mut permit_flow_acc) = acc;
+                    for (acc, flow) in edge_flow_acc.iter_mut().zip(edge_flow.into_iter()) {
+                        *acc = acc.clone() + flow;
+                    }
+                    for (acc, flow) in permit_flow_acc.iter_mut().zip(permit_flow.into_iter()) {
+                        *acc = acc.clone() + flow;
+                    }
+                    (edge_flow_acc, permit_flow_acc)
+                });
 
         EdgeBasedSolution::from_vec(
             edge_flow.into_iter().map(|it| it.sum()).collect(),
             permit_flow.into_iter().map(|it| it.sum()).collect(),
         )
+    }
+}
+
+trait ForEachWithThreadLocal<T> {
+    fn for_each_with_thread_local<S: Send>(
+        self,
+        init: impl Fn() -> S + Sync,
+        f: impl Fn(T, &mut S) + Sync + Send,
+    ) -> impl Iterator<Item = S>;
+}
+
+impl<T, I: ParallelIterator<Item = T>> ForEachWithThreadLocal<T> for I {
+    fn for_each_with_thread_local<S: Send>(
+        self,
+        init: impl Fn() -> S + Sync,
+        f: impl Fn(T, &mut S) + Sync + Send,
+    ) -> impl Iterator<Item = S> {
+        let tl: ThreadLocal<UnsafeCell<S>> = ThreadLocal::new();
+        self.for_each(|item| {
+            let cell = tl.get_or(|| UnsafeCell::new(init()));
+
+            // SAFETY: Each thread gets its own cell, and the cell is only accessed here, so the mutable pointer is not aliased.
+            let state = unsafe { &mut *cell.get() };
+            f(item, state);
+        });
+        tl.into_iter().map(|it| it.into_inner())
     }
 }
 
