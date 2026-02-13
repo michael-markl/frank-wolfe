@@ -24,28 +24,50 @@ use crate::{
 pub struct CarbonPricingArgs {
     #[arg(long = "graph")]
     tntp_net: std::path::PathBuf,
+
     #[arg(long = "demand")]
     tntp_trips: std::path::PathBuf,
-    #[arg(long = "out")]
-    csv_output_path: std::path::PathBuf,
-    #[arg(long = "min_price")]
-    min_price: Float,
-    #[arg(long = "max_price")]
-    max_price: Float,
-    #[arg(long = "steps")]
-    steps: usize,
+
     #[arg(long = "min_per_time_unit")]
     min_per_time_unit: Option<Float>,
+
     #[arg(long = "km_per_distance_unit")]
     km_per_distance_unit: Option<Float>,
+
     #[arg(long = "cordon_edge_map")]
     cordon_edge_map: Option<std::path::PathBuf>,
+
     #[arg(long = "permit_based", default_value_t = false)]
     permit_based: bool,
+
+    #[arg(long = "min_price")]
+    min_price: Float,
+
+    #[arg(long = "max_price")]
+    max_price: Float,
+
+    #[arg(long = "steps")]
+    steps: usize,
+
+    #[arg(
+        long = "reuse_solution",
+        default_value_t = true,
+        help = "Whether to reuse the solution from the previous price as the initial solution for the next price. \
+                Speeds up computation, but may lead to some noticeable artifacts if accuracy is low."
+    )]
+    reuse_solution: bool,
+
+    #[arg(long = "rel_gap", default_value_t = 1e-6, help = "Desired relative optimality of the Frank-Wolfe algorithm gap for each price.")]
+    rel_gap: Float,
+
+    #[arg(long = "max_iter", default_value_t = 20000, help = "Maximum number of iterations of the Frank-Wolfe algorithm for each price.")]
+    max_iter: usize,
+
+    #[arg(long = "out")]
+    csv_output_path: std::path::PathBuf,
+
     #[arg(long = "out_flow_template")]
     flow_output_path: Option<std::path::PathBuf>,
-    #[arg(long = "reuse_solution", default_value_t = true)]
-    reuse_solution: bool,
 }
 
 pub trait TollsStrategy {
@@ -227,6 +249,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         (args.min_price, args.max_price),
         args.steps,
         tolls_strategy,
+        args.rel_gap,
+        args.max_iter
         args.reuse_solution,
         |step, price, result, graph| {
             demand.check_solution(&result.solution, graph);
@@ -384,6 +408,8 @@ pub fn compute_solutions_for_price_range<'a>(
     price_range: (Float, Float),
     steps: usize,
     tolls_strategy: impl TollsStrategy,
+    rel_gap: Float,
+    max_iter: usize,
     reuse_solution: bool,
     mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<EdgeBasedSolution>, &Graph),
 ) {
@@ -417,7 +443,7 @@ pub fn compute_solutions_for_price_range<'a>(
             compute_initial_solution(graph, &instance)
         };
 
-        let result = solve_convex_program(initial_solution, instance);
+        let result = solve_convex_program(initial_solution, instance, rel_gap, max_iter);
 
         on_step(step, price, &result, graph);
         solution = Some(result.solution);

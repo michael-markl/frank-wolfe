@@ -139,9 +139,9 @@ pub struct FrankWolfeResult<Solution> {
 pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     initial_solution: Solution,
     instance: I,
+    rel_gap_tol: Float,
+    max_iterations: usize,
 ) -> FrankWolfeResult<Solution> {
-    let max_iterations: usize = 10000;
-    let rel_gap_tol: Float = 1e-6;
     let abs_gap_tol: Float = 1e-8;
 
     let mut cur_solution: Solution = initial_solution;
