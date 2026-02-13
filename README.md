@@ -22,7 +22,7 @@ To compile the program, a current version of the Rust toolchain is required, see
 
 ## Running the experiments
 
-If you are using Linux or MacOS, you should be able to run the expeirments by simply executing the shell script `run-experiments.sh`.
+If you are using Linux or MacOS, you should be able to run the experiments by simply executing the shell script `run-experiments.sh`.
 On Windows, the commands can be copied into Powershell.
 Please replace the $NETWORKS variable with a path to your copy of the TransportationNetworks folder.
 

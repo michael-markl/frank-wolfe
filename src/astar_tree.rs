@@ -444,8 +444,7 @@ mod tests {
     use super::*;
 
     struct TestGraph {
-        edges: Vec<(NodeIdx, NodeIdx)>, // (tail, head)
-        edge_costs: Vec<Float>,
+        edges: Vec<(NodeIdx, NodeIdx, Float)>,
     }
 
     impl TestGraph {
@@ -458,23 +457,8 @@ mod tests {
 
         fn add_edge(&mut self, tail: NodeIdx, head: NodeIdx, cost: Float) -> EdgeIdx {
             let edge_idx = self.edges.len();
-            self.edges.push((tail, head));
-            self.edge_costs.push(cost);
+            self.edges.push((tail, head, cost));
             edge_idx
-        }
-
-        fn build_outgoing_edges(&self) -> Vec<Vec<EdgeIdx>> {
-            let max_node = self
-                .edges
-                .iter()
-                .map(|(tail, head)| (*tail).max(*head))
-                .max()
-                .unwrap_or(0);
-            let mut outgoing = vec![Vec::new(); max_node + 1];
-            for (edge_idx, (tail, _)) in self.edges.iter().enumerate() {
-                outgoing[*tail].push(edge_idx);
-            }
-            outgoing
         }
     }
 
@@ -486,7 +470,7 @@ mod tests {
         fn num_nodes(&self) -> usize {
             self.edges
                 .iter()
-                .map(|(tail, head)| (*tail).max(*head))
+                .map(|(tail, head, _)| (*tail).max(*head))
                 .max()
                 .map(|m| m + 1)
                 .unwrap_or(0)
@@ -504,12 +488,12 @@ mod tests {
             self.edges
                 .iter()
                 .enumerate()
-                .filter(move |(_, (tail, _))| *tail == node_idx)
+                .filter(move |(_, (tail, _, _))| *tail == node_idx)
                 .map(|(edge_idx, _)| edge_idx)
         }
 
         fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
-            self.edge_costs[edge_idx]
+            self.edges[edge_idx].2
         }
 
         fn edge_tail(&self, edge_idx: EdgeIdx) -> NodeIdx {
@@ -551,7 +535,7 @@ mod tests {
 
     impl CostValuesOps for TestGraph {
         fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
-            self.edge_costs[edge_idx]
+            self.edges[edge_idx].2
         }
 
         fn get_permit_cost(&self, _permit_idx: PermitIdx) -> Float {
