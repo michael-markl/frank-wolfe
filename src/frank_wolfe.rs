@@ -1,6 +1,6 @@
 use std::mem::swap;
 
-use log::{info, debug, warn};
+use log::{debug, info, warn};
 
 /// Returns the minimum of two values, if they are comparable, and otherwise returns the second value.
 ///
@@ -140,8 +140,8 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
     initial_solution: Solution,
     instance: I,
 ) -> FrankWolfeResult<Solution> {
-    let max_iterations: usize = 7000;
-    let rel_gap_tol: Float = 1e-5;
+    let max_iterations: usize = 10000;
+    let rel_gap_tol: Float = 1e-6;
     let abs_gap_tol: Float = 1e-8;
 
     let mut cur_solution: Solution = initial_solution;

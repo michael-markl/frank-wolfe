@@ -170,7 +170,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     all_node_ids.dedup();
 
     for node_id in all_node_ids {
-        let allow_thru = first_thru_node.map_or(true, |first| node_id >= first);
+        let allow_thru = first_thru_node.is_none_or(|first| node_id >= first);
         let node_idx = graph.add_node(allow_thru);
         node_idx_by_id.insert(node_id, node_idx);
     }
@@ -178,19 +178,21 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     for edge in raw_edges {
         let tail_idx = *node_idx_by_id.get(&edge.tail_node).unwrap();
         let head_idx = *node_idx_by_id.get(&edge.head_node).unwrap();
-        graph.add_edge(
-            tail_idx,
-            head_idx,
-            BUNDLE_IDX_EMPTY,
-            EdgeParams {
-                capacity: edge.capacity,
-                length: edge.length,
-                toll: 0.0,
-                offset: 0.0,
-                ff_time: edge.free_flow_time,
-                beta: edge.b,
-            },
-        ).expect("Node indices are valid");
+        graph
+            .add_edge(
+                tail_idx,
+                head_idx,
+                BUNDLE_IDX_EMPTY,
+                EdgeParams {
+                    capacity: edge.capacity,
+                    length: edge.length,
+                    toll: 0.0,
+                    offset: 0.0,
+                    ff_time: edge.free_flow_time,
+                    beta: edge.b,
+                },
+            )
+            .expect("Node indices are valid");
     }
 
     Ok(TNTPNet {

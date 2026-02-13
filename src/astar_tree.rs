@@ -2,11 +2,10 @@ use std::{collections::hash_map::Entry, sync::RwLock};
 
 use accurate::traits::SumWithAccumulator;
 use log::trace;
-use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 
 use crate::{
-    astar::AStarTable,
+    astar::AStarBoundOps,
     bundle_index::BundleIndex,
     col::{HashMap, map_new},
     common::{
@@ -17,7 +16,7 @@ use crate::{
     graph_ops::GraphOps,
 };
 
-pub trait ShortestPathCostOps {
+pub trait CostValuesOps {
     fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float;
 
     fn get_permit_cost(&self, permit_idx: PermitIdx) -> Float;
@@ -35,8 +34,10 @@ struct AStarTreeDistanceEntry {
     cheapest: BundleIdx,
 }
 
-pub struct AStarTree {
+pub struct AStarTree<'a, B: AStarBoundOps> {
     source_idx: NodeIdx,
+    bounds: &'a B,
+
     /// distances[w][B] is the cost of a minimum s-w-path p, including the bundle cost, among paths p that require exactly the permits in bundle B.
     distances: HashMap<NodeIdx, AStarTreeDistanceEntry>,
 
@@ -64,7 +65,11 @@ impl Ord for TreeEntry {
             // However, if the destination changes, we recompute the cost_estimate_to_destination based
             // on the new destination.
             // (Technically, we could just use a different priority_queue API when relaxing edges.)
-            .then_with(|| other.max_cost_from_source.total_cmp(&self.max_cost_from_source))
+            .then_with(|| {
+                other
+                    .max_cost_from_source
+                    .total_cmp(&self.max_cost_from_source)
+            })
     }
 }
 
@@ -81,8 +86,8 @@ impl PartialEq for TreeEntry {
 }
 impl Eq for TreeEntry {}
 
-impl AStarTree {
-    pub fn new(source_idx: NodeIdx) -> AStarTree {
+impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
+    pub fn new(source_idx: NodeIdx, bounds: &'a B) -> AStarTree<'a, B> {
         trace!("Creating A* tree with source node {}", source_idx);
 
         let mut queue = PriorityQueue::<(NodeIdx, BundleIdx), TreeEntry>::new();
@@ -96,6 +101,7 @@ impl AStarTree {
         );
         AStarTree {
             source_idx,
+            bounds,
             distances: map_new(),
             destination_idx: None,
             queue,
@@ -104,7 +110,7 @@ impl AStarTree {
 
     fn thru_aware_lower_bound(
         source_idx: NodeIdx,
-        table: &AStarTable,
+        bounds: &B,
         node_idx: NodeIdx,
         destination_node_idx: NodeIdx,
         destination_idx: DestinationIdx,
@@ -114,7 +120,7 @@ impl AStarTree {
             || node_idx == destination_node_idx
             || graph.node_allows_through_traffic(node_idx)
         {
-            table.get_lower_bound(node_idx, destination_idx)
+            bounds.get_lower_bound(node_idx, destination_idx)
         } else {
             Float::INFINITY
         }
@@ -122,10 +128,9 @@ impl AStarTree {
 
     pub fn compute_shortest_path(
         &mut self,
-        table: &AStarTable,
         graph: &impl GraphOps,
         demand: &impl DemandOps,
-        costs: &impl ShortestPathCostOps,
+        costs: &impl CostValuesOps,
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> (Float, Vec<EdgeIdx>, BundleIdx) {
@@ -134,13 +139,12 @@ impl AStarTree {
             return (0.0, vec![], BUNDLE_IDX_EMPTY);
         }
 
-        let distance = self.compute_distance(table, graph, demand, costs, destination_idx, bundles);
+        let distance = self.compute_distance(graph, demand, costs, destination_idx, bundles);
 
         let destination_entry = self
             .distances
             .get(&destination_node_idx)
             .expect("Destination must be reachable from source");
-
 
         let mut path = vec![];
 
@@ -158,36 +162,29 @@ impl AStarTree {
         }
         path.reverse();
 
-
-        // TODO: Remove this assertion in production.
-        let path_cost = path
-            .iter()
-            .map(|&edge_idx| costs.get_edge_cost(edge_idx))
-            .sum::<Float>()
-            + bundles
-                .read()
-                .unwrap()
-                .get_payload(destination_entry.cheapest)
-                .permits()
-                .map(|permit_idx| costs.get_permit_cost(permit_idx))
-                .sum::<Float>();
-        assert!(
-            (path_cost - distance).abs() < 1e-8,
-            "Reconstructed path cost {} differs from computed distance: {}, path: {:?}",
-            path_cost,
-            distance,
-            path
-        );
+        if cfg!(debug_assertions) {
+            let (path_cost, path_bundle_idx) = compute_path_cost(&path, costs, bundles, graph);
+            debug_assert!(
+                (path_cost - distance).abs() < 1e-8
+                    && path_bundle_idx == destination_entry.cheapest,
+                "Reconstructed path cost {} differs from computed distance: {}, \
+                or reconstructed path bundle idx {} differs from computed cheapest bundle idx {}, path: {:?}",
+                path_cost,
+                distance,
+                path_bundle_idx,
+                destination_entry.cheapest,
+                path
+            );
+        }
 
         (distance, path, destination_entry.cheapest)
     }
 
     pub fn compute_distance(
         &mut self,
-        table: &AStarTable,
         graph: &impl GraphOps,
         demand: &impl DemandOps,
-        costs: &impl ShortestPathCostOps,
+        costs: &impl CostValuesOps,
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
     ) -> Float {
@@ -203,14 +200,17 @@ impl AStarTree {
 
         if self.destination_idx != Some(destination_idx) {
             self.destination_idx = Some(destination_idx);
-            trace!("Destination changed to {}, {}", destination_idx, destination_node_idx);
+            trace!(
+                "Destination changed to {}, {}",
+                destination_idx, destination_node_idx
+            );
             // Recompute the entry cost estimates in the queue.
             self.queue
                 .iter_mut()
                 .for_each(|((node_idx, bundle_idx), entry)| {
                     let lower_bound = Self::thru_aware_lower_bound(
                         self.source_idx,
-                        table,
+                        self.bounds,
                         *node_idx,
                         destination_node_idx,
                         destination_idx,
@@ -241,7 +241,8 @@ impl AStarTree {
                     .predecessor
                     .expect("Predecessor must be set for non-source nodes");
 
-                trace!("Settling node {}, bundle {}, distance from source: {:.3}, predecessor edge: {:?}, predecessor bundle: {}, pred node: {:?}",
+                trace!(
+                    "Settling node {}, bundle {}, distance from source: {:.3}, predecessor edge: {:?}, predecessor bundle: {}, pred node: {:?}",
                     node_idx,
                     bundle_idx,
                     entry.max_cost_from_source,
@@ -295,21 +296,22 @@ impl AStarTree {
                     }
 
                     let (permit_aware_edge_cost, new_bundle_idx) =
-                        Self::permit_aware_edge_cost(bundle_idx, edge_idx, costs, graph, bundles);
+                        permit_aware_edge_cost(bundle_idx, edge_idx, costs, graph, bundles);
                     let new_max_cost_from_source =
                         entry.max_cost_from_source + permit_aware_edge_cost;
 
                     let cost_estimate_to_destination = new_max_cost_from_source
                         + Self::thru_aware_lower_bound(
                             self.source_idx,
-                            table,
+                            self.bounds,
                             head,
                             destination_node_idx,
                             destination_idx,
                             graph,
                         );
 
-                    trace!("Relaxing edge {},{} -> {},{}, distance from source {:.3} + {:.3} = {:.3}, cost estimate to destination {:.3}",
+                    trace!(
+                        "Relaxing edge {},{} -> {},{}, distance from source {:.3} + {:.3} = {:.3}, cost estimate to destination {:.3}",
                         node_idx,
                         bundle_idx,
                         head,
@@ -318,7 +320,7 @@ impl AStarTree {
                         permit_aware_edge_cost,
                         new_max_cost_from_source,
                         cost_estimate_to_destination
-                     );
+                    );
 
                     if let Some(existing_entry) = self
                         .distances
@@ -347,14 +349,14 @@ impl AStarTree {
                             }),
                         },
                     );
-                    if let Some(hi) = res {
-                        if hi.max_cost_from_source != new_max_cost_from_source || hi.cost_estimate_to_destination != cost_estimate_to_destination {
-                            trace!(
-                                "Existing priority ({:.3}, {:.3}) was overwritten.",
-                                hi.max_cost_from_source,
-                                hi.cost_estimate_to_destination
-                            );
-                        }
+                    if let Some(entry) = res
+                        && (entry.max_cost_from_source != new_max_cost_from_source
+                            || entry.cost_estimate_to_destination != cost_estimate_to_destination)
+                    {
+                        trace!(
+                            "Existing priority ({:.3}, {:.3}) was overwritten.",
+                            entry.max_cost_from_source, entry.cost_estimate_to_destination
+                        );
                     }
                 }
             }
@@ -370,75 +372,75 @@ impl AStarTree {
             self.source_idx, destination_node_idx, destination_idx
         );
     }
-
-    /// Returns the cost and a new bundle idx for traversing the edge, which may require the purchase of additional permits.
-    fn permit_aware_edge_cost(
-        from_bundle_idx: BundleIdx,
-        edge_idx: EdgeIdx,
-        costs: &impl ShortestPathCostOps,
-        graph: &impl GraphOps,
-        bundles: &RwLock<BundleIndex>,
-    ) -> (Float, BundleIdx) {
-        let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
-        let edge_cost = costs.get_edge_cost(edge_idx);
-        if edge_bundle_idx == BUNDLE_IDX_EMPTY {
-            return (edge_cost, from_bundle_idx);
-        }
-
-        let guard = bundles.read().unwrap();
-        let edge_bundle = guard.get_payload(edge_bundle_idx);
-        let from_bundle = guard.get_payload(from_bundle_idx);
-        let additional_permits_cost = edge_bundle
-            .set_minus_iter(from_bundle)
-            .map(|&it| costs.get_permit_cost(it))
-            .sum_with_accumulator::<MySumAccumulator>();
-        let new_bundle = edge_bundle.union(from_bundle);
-
-        let tmp_new_bundle_idx = guard.find_idx(&new_bundle);
-        drop(guard);
-        let new_bundle_idx = tmp_new_bundle_idx
-            .unwrap_or_else(|| bundles.write().unwrap().transfer_element(new_bundle));
-        (edge_cost + additional_permits_cost, new_bundle_idx)
-    }
 }
 
-fn from_dijkstra(
-    source_idx: NodeIdx,
+/// Returns the cost and a new bundle idx for traversing the edge, which may require the purchase of additional permits.
+fn permit_aware_edge_cost(
+    from_bundle_idx: BundleIdx,
+    edge_idx: EdgeIdx,
+    costs: &impl CostValuesOps,
     graph: &impl GraphOps,
-    costs: &impl ShortestPathCostOps,
-    dest_node_idx: NodeIdx,
     bundles: &RwLock<BundleIndex>,
-    destination_bundle: Option<BundleIdx>,
-) -> (Vec<(NodeIdx, BundleIdx)>, Float) {
-    let result = pathfinding::directed::dijkstra::dijkstra(
-        &(source_idx, BUNDLE_IDX_EMPTY),
-        |&(node_idx, bundle_idx)| {
-            if node_idx == source_idx || graph.node_allows_through_traffic(node_idx) {
-                graph
-                    .outgoing_edges(node_idx)
-                    .map(|edge_idx| {
-                        let head = graph.edge_head(edge_idx);
-                        let (permit_aware_edge_cost, new_bundle_idx) =
-                            AStarTree::permit_aware_edge_cost(
-                                bundle_idx, edge_idx, costs, graph, bundles,
-                            );
-                        ((head, new_bundle_idx), OrderedFloat(permit_aware_edge_cost))
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![]
-            }
-        },
-        |&(node_idx, bundle_idx)| {
-            node_idx == dest_node_idx && (destination_bundle.is_none_or(|it| it == bundle_idx))
-        },
-    );
-    let (path, distance) = result.unwrap();
-    (path, distance.into_inner())
+) -> (Float, BundleIdx) {
+    let edge_bundle_idx: BundleIdx = graph.edge_bundle(edge_idx);
+    let edge_cost = costs.get_edge_cost(edge_idx);
+    if edge_bundle_idx == BUNDLE_IDX_EMPTY {
+        return (edge_cost, from_bundle_idx);
+    }
+
+    let guard = bundles.read().unwrap();
+    let edge_bundle = guard.get_payload(edge_bundle_idx);
+    let from_bundle = guard.get_payload(from_bundle_idx);
+    let additional_permits_cost = edge_bundle
+        .set_minus_iter(from_bundle)
+        .map(|&it| costs.get_permit_cost(it))
+        .sum_with_accumulator::<MySumAccumulator>();
+    let new_bundle = edge_bundle.union(from_bundle);
+
+    let tmp_new_bundle_idx = guard.find_idx(&new_bundle);
+    drop(guard);
+    let new_bundle_idx =
+        tmp_new_bundle_idx.unwrap_or_else(|| bundles.write().unwrap().transfer_element(new_bundle));
+    (edge_cost + additional_permits_cost, new_bundle_idx)
+}
+
+fn compute_path_cost(
+    path: &[EdgeIdx],
+    costs: &impl CostValuesOps,
+    bundles: &RwLock<BundleIndex>,
+    graph: &impl GraphOps,
+) -> (Float, BundleIdx) {
+    let edge_costs = path
+        .iter()
+        .map(|&edge_idx| costs.get_edge_cost(edge_idx))
+        .sum::<Float>();
+    let mut bundle_idx = BUNDLE_IDX_EMPTY;
+    for &edge_idx in path {
+        let edge_bundle_idx = graph.edge_bundle(edge_idx);
+        if edge_bundle_idx != BUNDLE_IDX_EMPTY {
+            let guard = bundles.read().unwrap();
+            let edge_bundle = guard.get_payload(edge_bundle_idx);
+            bundle_idx = guard
+                .find_idx(&edge_bundle.union(guard.get_payload(bundle_idx)))
+                .expect("Bundle should already be indexed..");
+        }
+    }
+
+    let permit_costs = bundles
+        .read()
+        .unwrap()
+        .get_payload(bundle_idx)
+        .permits()
+        .map(|permit_idx| costs.get_permit_cost(permit_idx))
+        .sum::<Float>();
+
+    (edge_costs + permit_costs, bundle_idx)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::astar::AStarTable;
+
     use super::*;
 
     struct TestGraph {
@@ -547,7 +549,7 @@ mod tests {
         }
     }
 
-    impl ShortestPathCostOps for TestGraph {
+    impl CostValuesOps for TestGraph {
         fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
             self.edge_costs[edge_idx]
         }
@@ -563,7 +565,7 @@ mod tests {
         //             1 ----> 4 ----> 5 (dest 1)
         //          1 /    2 /    3  /
         //           /      /       /
-        // (source) 0     5/       /1 
+        // (source) 0     5/       /1
         //           \    /       /
         //          4 \  / 6     /
         //             2 ----> 3 (dest 0)
@@ -582,23 +584,22 @@ mod tests {
 
         // Create demand: destination 0 is node 5, destination 1 is node 3
         let demand = TestDemand::new(vec![3, 5]);
-        
+
         // Create a table for lower bounds (all zeros)
         let mut table = AStarTable::create(graph.num_nodes(), 2);
         table.fill_table(&graph, &demand);
-
 
         // Create bundle index
         let bundles = RwLock::new(BundleIndex::new());
 
         // Create A* tree with source 0
-        let mut tree = AStarTree::new(0);
+        let mut tree = AStarTree::new(0, &table);
 
         // Compute distance to destination 0 (node 5)
-        let dist_to_dest_0 = tree.compute_distance(&table, &graph, &demand, &graph, 0, &bundles);
+        let dist_to_dest_0 = tree.compute_distance(&graph, &demand, &graph, 0, &bundles);
 
         // Compute distance to destination 1 (node 3)
-        let dist_to_dest_1 = tree.compute_distance(&table, &graph, &demand, &graph, 1, &bundles);
+        let dist_to_dest_1 = tree.compute_distance(&graph, &demand, &graph, 1, &bundles);
 
         // Expected shortest path to node 3: 0->2->3 (costs: 4 + 6 = 10)
         assert!(

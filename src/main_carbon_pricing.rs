@@ -1,8 +1,6 @@
 use std::sync::RwLock;
 
-use accurate::{
-    traits::{DotWithAccumulator, SumWithAccumulator},
-};
+use accurate::traits::{DotWithAccumulator, SumWithAccumulator};
 use clap_derive::Parser;
 use log::{error, info, trace};
 use rayon::iter::ParallelIterator;
@@ -46,7 +44,7 @@ pub struct CarbonPricingArgs {
     permit_based: bool,
     #[arg(long = "out_flow_template")]
     flow_output_path: Option<std::path::PathBuf>,
-    #[arg(long = "reuse_solution", default_value_t = false)]
+    #[arg(long = "reuse_solution", default_value_t = true)]
     reuse_solution: bool,
 }
 
@@ -314,8 +312,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     .solution
                     .permit_flow()
                     .iter()
-                    .enumerate()
-                    .map(|(_, &it)| it)
+                    .copied()
                     .sum_with_accumulator::<MySumAccumulator>()
             });
 
@@ -347,7 +344,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
 fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
     let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
 
-    wtr.write_record(&[
+    wtr.write_record([
         "edge_id",
         "flow",
         "adjusted-length",

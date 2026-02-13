@@ -22,11 +22,13 @@ impl AStarTable {
     pub fn create(num_nodes: NodeIdx, num_destinations: NodeIdx) -> AStarTable {
         AStarTable {
             num_nodes,
-            distances: vec![Float::INFINITY; num_nodes * num_destinations],
+            distances: vec![0.0; num_nodes * num_destinations],
         }
     }
 
     pub fn fill_table(&mut self, graph: &(impl GraphOps + Sync), demand: &(impl DemandOps + Sync)) {
+        self.distances.fill(Float::INFINITY);
+
         self.distances
             .par_chunks_exact_mut(self.num_nodes)
             .enumerate()
@@ -34,8 +36,17 @@ impl AStarTable {
                 fill_row(graph, demand, distances, destination_idx);
             });
     }
+}
 
-    pub fn get_lower_bound(&self, node_idx: NodeIdx, destination_idx: DestinationIdx) -> Float {
+pub trait AStarBoundOps {
+    /// Given a node v and a destination t, returns a lower bound on the cost of any feasible v-t-path.
+    ///
+    /// Here, "feasible" means that the path may not contain an inner node that disallows through traffic.
+    fn get_lower_bound(&self, node_idx: NodeIdx, destination_idx: DestinationIdx) -> Float;
+}
+
+impl AStarBoundOps for AStarTable {
+    fn get_lower_bound(&self, node_idx: NodeIdx, destination_idx: DestinationIdx) -> Float {
         self.distances[destination_idx * self.num_nodes + node_idx]
     }
 }

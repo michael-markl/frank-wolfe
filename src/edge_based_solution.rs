@@ -1,6 +1,9 @@
-use accurate::{traits::DotWithAccumulator};
+use accurate::traits::DotWithAccumulator;
 
-use crate::{common::{Float, MyDotAccumulator}, frank_wolfe::SolutionOps};
+use crate::{
+    common::{Float, MyDotAccumulator},
+    frank_wolfe::SolutionOps,
+};
 
 #[derive(Clone)]
 pub struct EdgeBasedSolution {

@@ -1,13 +1,19 @@
 use std::sync::RwLock;
 
-use accurate::{
-    traits::{DotWithAccumulator, SumWithAccumulator},
-};
+use accurate::traits::{DotWithAccumulator, SumWithAccumulator};
 use clap::{Parser, Subcommand};
 use log::{error, info};
 
 use crate::{
-    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{MyDotAccumulator, MySumAccumulator}, demand::DemandOps, edge_based_convex_program::EdgeBasedConvexProgramInstance, frank_wolfe::solve_convex_program, graph_ops::GraphOps, main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing}
+    astar::AStarTable,
+    bmw_function::BMWFunction,
+    bundle_index::BundleIndex,
+    common::{MyDotAccumulator, MySumAccumulator},
+    demand::DemandOps,
+    edge_based_convex_program::EdgeBasedConvexProgramInstance,
+    frank_wolfe::solve_convex_program,
+    graph_ops::GraphOps,
+    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
 };
 
 mod astar;

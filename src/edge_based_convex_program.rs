@@ -2,15 +2,13 @@ use std::sync::RwLock;
 
 use accurate::dot::traits::DotWithAccumulator;
 use accurate::traits::{SumAccumulator, SumWithAccumulator};
-use accurate::{
-};
 use rayon::iter::ParallelIterator;
 
 use crate::common::{MyDotAccumulator, MySumAccumulator};
 use crate::{
     BMWFunction,
     astar::AStarTable,
-    astar_tree::{AStarTree, ShortestPathCostOps},
+    astar_tree::{AStarTree, CostValuesOps},
     bundle_index::BundleIndex,
     common::{self, EdgeIdx, Float},
     demand::Demand,
@@ -35,7 +33,7 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
     ) -> EdgeBasedSolution {
         struct Costs<'a>(&'a Vec<Float>, &'a Vec<Float>);
 
-        impl ShortestPathCostOps for Costs<'_> {
+        impl CostValuesOps for Costs<'_> {
             fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
                 self.0[edge_idx]
             }
@@ -46,34 +44,31 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
         }
 
         let costs = Costs(edge_costs, permit_costs);
-        let mut edge_flow =
-            vec![MySumAccumulator::zero(); self.graph.num_edges()];
-        let mut permit_flow =
-            vec![MySumAccumulator::zero(); self.graph.num_permits()];
+        let mut edge_flow = vec![MySumAccumulator::zero(); self.graph.num_edges()];
+        let mut permit_flow = vec![MySumAccumulator::zero(); self.graph.num_permits()];
 
         let results = self
             .demand
             .par_iter_by_origin()
             .map(|(&origin, commodity_indices)| {
-                let mut tree = AStarTree::new(origin);
+                let mut tree = AStarTree::new(origin, self.astar_table);
                 let costs = &costs;
-                commodity_indices
-                    .iter()
-                    .map(move |&commodity_idx| {
-                        let commodity = self.demand.get_commodity(commodity_idx);
-                        let destination_idx = commodity.destination_idx;
-                        let (_cost, path, bundle_idx) = tree.compute_shortest_path(
-                            self.astar_table,
-                            self.graph,
-                            self.demand,
-                            costs,
-                            destination_idx,
-                            self.bundle_index,
-                        );
-                        (path, bundle_idx, commodity.demand)
-                    })
-            }).flatten_iter().collect::<Vec<_>>();
-            
+                commodity_indices.iter().map(move |&commodity_idx| {
+                    let commodity = self.demand.get_commodity(commodity_idx);
+                    let destination_idx = commodity.destination_idx;
+                    let (_cost, path, bundle_idx) = tree.compute_shortest_path(
+                        self.graph,
+                        self.demand,
+                        costs,
+                        destination_idx,
+                        self.bundle_index,
+                    );
+                    (path, bundle_idx, commodity.demand)
+                })
+            })
+            .flatten_iter()
+            .collect::<Vec<_>>();
+
         for (path, bundle_idx, demand) in results.into_iter() {
             for edge_idx in path {
                 edge_flow[edge_idx] += demand;
