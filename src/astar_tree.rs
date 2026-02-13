@@ -506,8 +506,8 @@ mod tests {
                 .map(|(edge_idx, _)| edge_idx)
         }
 
-        fn edge_cost_lower_bound(&self, _edge_idx: EdgeIdx) -> Float {
-            0.0
+        fn edge_cost_lower_bound(&self, edge_idx: EdgeIdx) -> Float {
+            self.edge_costs[edge_idx]
         }
 
         fn edge_tail(&self, edge_idx: EdgeIdx) -> NodeIdx {
@@ -560,30 +560,33 @@ mod tests {
     #[test]
     fn test_compute_distance_same_source_different_destinations() {
         // Create a more complex graph with multiple paths:
-        //             1 ----> 4 ----> 5 (dest 0)
-        //          1 /    2 /     3
-        //           /      /
-        // (source) 0     5/
-        //           \    /
-        //          4 \  / 6
-        //             2 ----> 3 (dest 1)
+        //             1 ----> 4 ----> 5 (dest 1)
+        //          1 /    2 /    3  /
+        //           /      /       /
+        // (source) 0     5/       /1 
+        //           \    /       /
+        //          4 \  / 6     /
+        //             2 ----> 3 (dest 0)
         //
         // Path to 5: 0->1->4->5 (costs: 1 + 2 + 3 = 6) or 0->2->4->5 (costs: 4 + 5 + 3 = 12)
         // Path to 3: 0->2->3 (costs: 4 + 6 = 10)
 
         let mut graph = TestGraph::new();
-        let edge_0_1 = graph.add_edge(0, 1, 1.0); // cost 1
-        let edge_0_2 = graph.add_edge(0, 2, 4.0); // cost 4
-        let edge_1_4 = graph.add_edge(1, 4, 2.0); // cost 2
-        let edge_2_4 = graph.add_edge(2, 4, 5.0); // cost 5
-        let edge_4_5 = graph.add_edge(4, 5, 3.0); // cost 3
-        let edge_2_3 = graph.add_edge(2, 3, 6.0); // cost 6
-
-        // Create a table for lower bounds (all zeros)
-        let mut table = AStarTable::create(graph.num_nodes(), 2);
+        graph.add_edge(0, 1, 1.0); // cost 1
+        graph.add_edge(0, 2, 4.0); // cost 4
+        graph.add_edge(1, 4, 2.0); // cost 2
+        graph.add_edge(2, 4, 5.0); // cost 5
+        graph.add_edge(4, 5, 3.0); // cost 3
+        graph.add_edge(2, 3, 6.0); // cost 6
+        graph.add_edge(3, 5, 1.0); // cost 1
 
         // Create demand: destination 0 is node 5, destination 1 is node 3
-        let demand = TestDemand::new(vec![5, 3]);
+        let demand = TestDemand::new(vec![3, 5]);
+        
+        // Create a table for lower bounds (all zeros)
+        let mut table = AStarTable::create(graph.num_nodes(), 2);
+        table.fill_table(&graph, &demand);
+
 
         // Create bundle index
         let bundles = RwLock::new(BundleIndex::new());
@@ -597,17 +600,17 @@ mod tests {
         // Compute distance to destination 1 (node 3)
         let dist_to_dest_1 = tree.compute_distance(&table, &graph, &demand, &graph, 1, &bundles);
 
-        // Expected shortest path to node 5: 0->1->4->5 (costs: 1 + 2 + 3 = 6)
+        // Expected shortest path to node 3: 0->2->3 (costs: 4 + 6 = 10)
         assert!(
-            (dist_to_dest_0 - 6.0).abs() < 1e-8,
-            "Distance to destination 0 should be 6.0, got {}",
+            (dist_to_dest_0 - 10.0).abs() < 1e-8,
+            "Distance to destination 0 should be 10.0, got {}",
             dist_to_dest_0
         );
 
-        // Expected shortest path to node 3: 0->2->3 (costs: 4 + 6 = 10)
+        // Expected shortest path to node 5: 0->1->4->5 (costs: 1 + 2 + 3 = 6)
         assert!(
-            (dist_to_dest_1 - 10.0).abs() < 1e-8,
-            "Distance to destination 1 should be 10.0, got {}",
+            (dist_to_dest_1 - 6.0).abs() < 1e-8,
+            "Distance to destination 1 should be 6.0, got {}",
             dist_to_dest_1
         );
     }
