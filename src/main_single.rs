@@ -112,10 +112,7 @@ pub fn main_single(args: SingleArgs) {
         })
         .dot_with_accumulator::<MyDotAccumulator>();
 
-    info!(
-        "Total Travel Time: {:.6e}",
-        total_travel_time
-    );
+    info!("Total Travel Time: {:.6e}", total_travel_time);
 
     if let Some(out_flow) = &args.out_flow {
         write_flow_csv(&result.solution, out_flow, &graph);

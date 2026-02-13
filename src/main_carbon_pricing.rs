@@ -57,10 +57,18 @@ pub struct CarbonPricingArgs {
     )]
     reuse_solution: bool,
 
-    #[arg(long = "rel_gap", default_value_t = 1e-6, help = "Desired relative optimality of the Frank-Wolfe algorithm gap for each price.")]
+    #[arg(
+        long = "rel_gap",
+        default_value_t = 1e-6,
+        help = "Desired relative optimality of the Frank-Wolfe algorithm gap for each price."
+    )]
     rel_gap: Float,
 
-    #[arg(long = "max_iter", default_value_t = 20000, help = "Maximum number of iterations of the Frank-Wolfe algorithm for each price.")]
+    #[arg(
+        long = "max_iter",
+        default_value_t = 20000,
+        help = "Maximum number of iterations of the Frank-Wolfe algorithm for each price."
+    )]
     max_iter: usize,
 
     #[arg(long = "out")]
@@ -449,7 +457,6 @@ pub fn compute_solutions_for_price_range<'a>(
         solution = Some(result.solution);
     }
 }
-
 
 struct CarbonPricing {}
 

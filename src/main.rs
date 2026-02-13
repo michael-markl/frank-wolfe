@@ -1,9 +1,9 @@
-
 use clap::{Parser, Subcommand};
 
 use crate::{
     bmw_function::BMWFunction,
-    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing}, main_single::{SingleArgs, main_single},
+    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
+    main_single::{SingleArgs, main_single},
 };
 
 mod astar;
@@ -19,9 +19,9 @@ mod frank_wolfe;
 mod graph;
 mod graph_ops;
 mod index;
+mod io;
 mod iter;
 mod main_carbon_pricing;
-mod io;
 mod main_single;
 
 #[derive(Parser)]
