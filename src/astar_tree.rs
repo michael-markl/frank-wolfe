@@ -29,8 +29,14 @@ struct Predecessor {
 }
 
 #[derive(Debug)]
+struct AStarDistanceBundleEntry {
+    cost_from_source: Float,
+    predecessor: Predecessor,
+}
+
+#[derive(Debug)]
 struct AStarTreeDistanceEntry {
-    by_bundle: HashMap<BundleIdx, (Float, Predecessor)>,
+    by_bundle: HashMap<BundleIdx, AStarDistanceBundleEntry>,
     cheapest: BundleIdx,
 }
 
@@ -155,7 +161,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                 .distances
                 .get(&current_node)
                 .expect("Current node must be reachable from source");
-            let (_distance, predecessor) = &entry.by_bundle[&current_bundle_idx];
+            let predecessor = &entry.by_bundle[&current_bundle_idx].predecessor;
             path.push(predecessor.edge_idx);
             current_node = graph.edge_tail(predecessor.edge_idx);
             current_bundle_idx = predecessor.prev_bundle_idx;
@@ -195,7 +201,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
         }
 
         if let Some(entry) = self.distances.get(&destination_node_idx) {
-            return entry.by_bundle[&entry.cheapest].0;
+            return entry.by_bundle[&entry.cheapest].cost_from_source;
         }
 
         if self.destination_idx != Some(destination_idx) {
@@ -255,7 +261,13 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                 match distance_entry {
                     Entry::Vacant(vacant) => {
                         let mut by_bundle = map_new();
-                        by_bundle.insert(bundle_idx, (entry.max_cost_from_source, predecessor));
+                        by_bundle.insert(
+                            bundle_idx,
+                            AStarDistanceBundleEntry {
+                                cost_from_source: entry.max_cost_from_source,
+                                predecessor,
+                            },
+                        );
                         vacant.insert(AStarTreeDistanceEntry {
                             by_bundle,
                             cheapest: bundle_idx,
@@ -265,7 +277,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                         let distance_entry = occupied.get_mut();
                         let previous = distance_entry
                             .by_bundle
-                            .insert(bundle_idx, (entry.max_cost_from_source, predecessor));
+                            .insert(bundle_idx, AStarDistanceBundleEntry { cost_from_source: entry.max_cost_from_source, predecessor });
                         assert!(
                             previous.is_none(),
                             "Node {} was reached multiple times with the same bundle idx {}, which should not happen in A*: {:?}",
@@ -274,14 +286,14 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                             distance_entry.by_bundle
                         );
                         assert!(
-                            distance_entry.by_bundle[&distance_entry.cheapest].0
+                            distance_entry.by_bundle[&distance_entry.cheapest].cost_from_source
                                 <= entry.max_cost_from_source,
                             "New path to node {} with bundle idx {} has higher cost than existing path with bundle idx {}: {} > {}",
                             node_idx,
                             bundle_idx,
                             distance_entry.cheapest,
                             entry.max_cost_from_source,
-                            distance_entry.by_bundle[&distance_entry.cheapest].0
+                            distance_entry.by_bundle[&distance_entry.cheapest].cost_from_source
                         );
                     }
                 }
@@ -328,12 +340,12 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                         .and_then(|it| it.by_bundle.get(&new_bundle_idx))
                     {
                         assert!(
-                            existing_entry.0 <= new_max_cost_from_source + 1e-8,
+                            existing_entry.cost_from_source <= new_max_cost_from_source + 1e-8,
                             "New path to node {} with bundle idx {} has higher cost than existing path with same bundle idx: {} > {}",
                             head,
                             new_bundle_idx,
                             new_max_cost_from_source,
-                            existing_entry.0
+                            existing_entry.cost_from_source
                         );
                         continue;
                     }
@@ -451,7 +463,6 @@ mod tests {
         fn new() -> Self {
             TestGraph {
                 edges: Vec::new(),
-                edge_costs: Vec::new(),
             }
         }
 
