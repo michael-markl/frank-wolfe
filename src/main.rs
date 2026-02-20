@@ -1,9 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use crate::{
-    bmw_function::BMWFunction,
-    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
-    main_single::{SingleArgs, main_single},
+    bmw_function::BMWFunction, main_budget_pricing::{BudgetPricingArgs, main_budget_pricing}, main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing}, main_single::{SingleArgs, main_single}
 };
 
 mod astar;
@@ -22,6 +20,7 @@ mod index;
 mod io;
 mod iter;
 mod main_carbon_pricing;
+mod main_budget_pricing;
 mod main_single;
 mod path_index;
 mod path_based_solution;
@@ -39,6 +38,7 @@ struct Cli {
 enum Commands {
     CarbonPricing(CarbonPricingArgs),
     Single(SingleArgs),
+    BudgetPricing(BudgetPricingArgs),
 }
 
 fn main() {
@@ -47,5 +47,6 @@ fn main() {
     match cli.command {
         Commands::CarbonPricing(args) => main_carbon_pricing(args),
         Commands::Single(args) => main_single(args),
+        Commands::BudgetPricing(args) => main_budget_pricing(args),
     }
 }
