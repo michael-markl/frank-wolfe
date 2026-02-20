@@ -23,6 +23,9 @@ mod io;
 mod iter;
 mod main_carbon_pricing;
 mod main_single;
+mod path_index;
+mod path_based_solution;
+mod path_based_convex_program;
 
 #[derive(Parser)]
 #[command(name = "frank-wolfe")]

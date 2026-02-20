@@ -48,10 +48,10 @@ pub trait SolutionOps: Clone {
 pub trait ConvexProgramInstance<Solution: SolutionOps> {
     /// Given a solution x and a direction v, computes the directional derivative of the function at x along v,
     /// i.e., <grad f(x), v>
-    fn directional_derivative(&self, at: &Solution, direction: &Solution) -> Float;
+    fn directional_derivative(&mut self, at: &Solution, direction: &Solution) -> Float;
 
     /// Computes the objective value f(x).
-    fn compute_objective(&self, solution: &Solution) -> Float;
+    fn compute_objective(&mut self, solution: &Solution) -> Float;
 
     /// Solves the linearized problem at the given gradient to get a search direction
     ///
@@ -64,7 +64,7 @@ pub trait ConvexProgramInstance<Solution: SolutionOps> {
     /// and the inner product of grad f(x) and (y - x). The sum of f(x) and this inner product is a new lower bound
     /// on the optimal value of the convex program. Hence, the negated inner product is a lower bound
     /// on the optimality gap at point x.
-    fn solve_subproblem(&self, x: &Solution) -> LinearizedSubProblemSolution<Solution>;
+    fn solve_subproblem(&mut self, x: &Solution) -> LinearizedSubProblemSolution<Solution>;
 }
 
 /// Find a step size alpha that minimizes the objective f(current + alpha * direction) on [0, 1].
@@ -73,7 +73,7 @@ pub trait ConvexProgramInstance<Solution: SolutionOps> {
 pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     initial: &Solution,
     direction: &Solution,
-    instance: &I,
+    instance: &mut I,
 ) -> Float {
     let derivative_zero_tol: Float = 1e-8;
     let line_search_max_iters: usize = 20;
@@ -138,7 +138,7 @@ pub struct FrankWolfeResult<Solution> {
 
 pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     initial_solution: Solution,
-    instance: I,
+    instance: &mut I,
     rel_gap_tol: Float,
     max_iterations: usize,
 ) -> FrankWolfeResult<Solution> {
@@ -185,7 +185,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             break;
         }
 
-        let step_size = line_search(&cur_solution, &linear_solution.direction, &instance);
+        let step_size = line_search(&cur_solution, &linear_solution.direction, instance);
         debug!("Line search step size: {:.6e}", step_size);
         if step_size == 0.0 {
             warn!(
@@ -283,19 +283,19 @@ mod tests {
 
         impl ConvexProgramInstance<SimpleSolution> for SimpleInstance {
             fn directional_derivative(
-                &self,
+                &mut self,
                 at: &SimpleSolution,
                 direction: &SimpleSolution,
             ) -> Float {
                 2.0 * (at.x * direction.x + at.y * direction.y)
             }
 
-            fn compute_objective(&self, solution: &SimpleSolution) -> Float {
+            fn compute_objective(&mut self, solution: &SimpleSolution) -> Float {
                 solution.x * solution.x + solution.y * solution.y
             }
 
             fn solve_subproblem(
-                &self,
+                &mut self,
                 _x: &SimpleSolution,
             ) -> LinearizedSubProblemSolution<SimpleSolution> {
                 // The feasible region is the unit ball.
@@ -324,9 +324,9 @@ mod tests {
         }
 
         let initial_solution = SimpleSolution { x: 0.23, y: -0.3 };
-        let instance = SimpleInstance;
+        let mut instance = SimpleInstance;
 
-        let final_solution = solve_convex_program(initial_solution, instance, 0.0, 100).solution;
+        let final_solution = solve_convex_program(initial_solution, &mut instance, 0.0, 100).solution;
         assert!(final_solution.x.abs() < 1e-4);
         assert!(final_solution.y.abs() < 1e-4);
     }

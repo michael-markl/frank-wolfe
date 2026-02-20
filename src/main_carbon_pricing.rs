@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use accurate::traits::{DotWithAccumulator, SumWithAccumulator};
 use clap_derive::Parser;
-use log::{error, info, trace};
+use log::{info, trace};
 use rayon::iter::ParallelIterator;
 
 use crate::{
@@ -15,18 +15,18 @@ use crate::{
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
     frank_wolfe::{FrankWolfeResult, solve_convex_program},
-    graph::{EdgeParams, Graph},
+    graph::{EdgeParams, Graph, LpfMode},
     graph_ops::GraphOps,
-    io::tntp::{read_net_file, read_trips_file},
+    io::{self},
 };
 
 #[derive(Parser, Debug)]
 pub struct CarbonPricingArgs {
     #[arg(long = "graph")]
-    tntp_net: std::path::PathBuf,
+    graph: std::path::PathBuf,
 
     #[arg(long = "demand")]
-    tntp_trips: std::path::PathBuf,
+    demand: std::path::PathBuf,
 
     #[arg(long = "min_per_time_unit")]
     min_per_time_unit: Option<Float>,
@@ -71,8 +71,8 @@ pub struct CarbonPricingArgs {
     )]
     max_iter: usize,
 
-    #[arg(long = "out")]
-    csv_output_path: std::path::PathBuf,
+    #[arg(long = "out_csv")]
+    csv_output_path: Option<std::path::PathBuf>,
 
     #[arg(long = "out_flow_template")]
     flow_output_path: Option<std::path::PathBuf>,
@@ -96,14 +96,11 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         "Steps must be 1 if and only if min_price equals max_price"
     );
 
-    let tntp_net = read_net_file(&args.tntp_net)
-        .map_err(|err| error!("Error reading net file: {}", err))
-        .unwrap();
-    let demand = read_trips_file(&args.tntp_trips, &tntp_net)
-        .map_err(|err| error!("Error reading trips file: {}", err))
-        .unwrap();
 
-    let mut graph = tntp_net.graph;
+    let ext_graph = io::read_graph(&args.graph);
+    let (demand, _commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
+
+    let mut graph = ext_graph.graph;
 
     if let Some(min_per_time_unit) = args.min_per_time_unit {
         for edge_idx in 0..graph.num_edges() {
@@ -144,6 +141,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 })
             } else {
                 let permit_idx = graph.add_permit(EdgeParams {
+                    mode: LpfMode::C,
                     ff_time: 0.0,
                     beta: 0.0,
                     capacity: 999999.0,
@@ -232,23 +230,35 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
             Box::new(CarbonPricing {})
         };
 
-    let mut wtr = csv::Writer::from_path(&args.csv_output_path).unwrap();
-    wtr.write_record([
-        "iteration",
-        "price",
-        "total_travel_time",
-        "total_user_cost",
-        "total_consumption",
-        "total_consumption_inside",
-        "total_entrances",
-        "total_permit_flow",
-        "num_iterations",
-        "objective_value",
-        "gap",
-        "relative_gap",
-    ])
-    .unwrap();
-    wtr.flush().unwrap();
+    let mut csv_writer = if let Some(csv_output_path) = &args.csv_output_path {
+        if csv_output_path.exists() {
+            panic!(
+                "CSV output file '{}' already exists. Please remove it or choose a different path.",
+                csv_output_path.display()
+            );
+        }
+        let mut wtr = csv::Writer::from_path(csv_output_path).unwrap();
+        wtr.write_record([
+            "iteration",
+            "price",
+            "total_travel_time",
+            "total_user_cost",
+            "total_consumption",
+            "total_consumption_inside",
+            "total_entrances",
+            "total_permit_flow",
+            "num_iterations",
+            "objective_value",
+            "gap",
+            "relative_gap",
+        ])
+        .unwrap();
+        wtr.flush().unwrap();
+        Some(wtr)
+    } else {
+        None
+    };
+
 
     compute_solutions_for_price_range(
         &mut graph,
@@ -353,22 +363,24 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 step, price, total_travel_time, total_user_cost, total_consumption
             );
 
-            wtr.write_record(&[
-                step.to_string(),
-                price.to_string(),
-                total_travel_time.to_string(),
-                total_user_cost.to_string(),
-                total_consumption.to_string(),
-                consumption_inside.map_or("".to_string(), |v| v.to_string()),
-                total_entrances.map_or("".to_string(), |v| v.to_string()),
-                total_permit_flow.map_or("".to_string(), |v| v.to_string()),
-                result.num_iterations.to_string(),
-                result.objective_value.to_string(),
-                result.optimality_gap.to_string(),
-                result.relative_optimality_gap.to_string(),
-            ])
-            .unwrap();
-            wtr.flush().unwrap();
+            csv_writer.iter_mut().for_each(|wtr| {
+                wtr.write_record(&[
+                    step.to_string(),
+                    price.to_string(),
+                    total_travel_time.to_string(),
+                    total_user_cost.to_string(),
+                    total_consumption.to_string(),
+                    consumption_inside.map_or("".to_string(), |v| v.to_string()),
+                    total_entrances.map_or("".to_string(), |v| v.to_string()),
+                    total_permit_flow.map_or("".to_string(), |v| v.to_string()),
+                    result.num_iterations.to_string(),
+                    result.objective_value.to_string(),
+                    result.optimality_gap.to_string(),
+                    result.relative_optimality_gap.to_string(),
+                ])
+                .unwrap();
+                wtr.flush().unwrap();
+            });
         },
     );
 }
@@ -436,7 +448,7 @@ pub fn compute_solutions_for_price_range<'a>(
         trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
 
-        let instance = EdgeBasedConvexProgramInstance {
+        let mut instance = EdgeBasedConvexProgramInstance {
             graph,
             demand,
             astar_table: &astar_table,
@@ -451,7 +463,7 @@ pub fn compute_solutions_for_price_range<'a>(
             instance.compute_initial_solution()
         };
 
-        let result = solve_convex_program(initial_solution, instance, rel_gap, max_iter);
+        let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
 
         on_step(step, price, &result, graph);
         solution = Some(result.solution);

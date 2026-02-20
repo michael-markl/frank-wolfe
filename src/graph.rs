@@ -3,7 +3,15 @@ use crate::{
     graph_ops::GraphOps,
 };
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum LpfMode {
+    BPR,
+    C,
+    OP
+}
+
 pub struct EdgeParams {
+    pub mode: LpfMode,
     pub toll: Float,
     pub offset: Float,
     pub ff_time: Float,

@@ -10,12 +10,12 @@ use crate::{
     col::{HashMap, map_new},
     common::{BUNDLE_IDX_EMPTY, Float, NodeIdx},
     demand::Demand,
-    graph::{EdgeParams, Graph},
+    graph::{EdgeParams, Graph, LpfMode}, io::ExternalGraph,
 };
 
 pub struct TNTPNet {
     pub graph: Graph,
-    pub node_idx_by_id: HashMap<usize, NodeIdx>,
+    pub node_idx_by_id: HashMap<i64, NodeIdx>,
 }
 
 fn read_metadata(
@@ -71,7 +71,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     let first_thru_node = metadata
         .get("FIRST THRU NODE")
         .map(|it| {
-            str::parse::<usize>(it).map_err(|err| format!("Invalid FIRST THRU NODE value: {}", err))
+            str::parse::<i64>(it).map_err(|err| format!("Invalid FIRST THRU NODE value: {}", err))
         })
         .transpose()?;
 
@@ -106,8 +106,8 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     let mut graph = Graph::empty();
 
     struct RawEdge {
-        tail_node: usize,
-        head_node: usize,
+        tail_node: i64,
+        head_node: i64,
         capacity: Float,
         length: Float,
         free_flow_time: Float,
@@ -124,12 +124,12 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
         let tail_node = data
             .get(*columns.get("init_node").unwrap())
             .ok_or_else(|| format!("Line {:}: Missing 'init_node' column", line_idx))?
-            .parse::<usize>()
+            .parse::<i64>()
             .map_err(|err| format!("Line {:}: Invalid init_node value: {}", line_idx, err))?;
         let head_node = data
             .get(*columns.get("term_node").unwrap())
             .ok_or_else(|| format!("Line {:}: Missing 'term_node' column", line_idx))?
-            .parse::<usize>()
+            .parse::<i64>()
             .map_err(|err| format!("Line {:}: Invalid term_node value: {}", line_idx, err))?;
         let capacity = data
             .get(*columns.get("capacity").unwrap())
@@ -165,7 +165,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     let mut all_node_ids = raw_edges
         .iter()
         .flat_map(|edge| [edge.tail_node, edge.head_node])
-        .collect::<Vec<usize>>();
+        .collect::<Vec<i64>>();
     all_node_ids.sort();
     all_node_ids.dedup();
 
@@ -184,6 +184,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
                 head_idx,
                 BUNDLE_IDX_EMPTY,
                 EdgeParams {
+                    mode: LpfMode::BPR,
                     capacity: edge.capacity,
                     length: edge.length,
                     toll: 0.0,
@@ -205,7 +206,7 @@ fn parse_trip_pairs(
     line: &str,
     origin_node_idx: usize,
     demand: &mut Demand,
-    tntp_net: &TNTPNet,
+    ext_graph: &ExternalGraph,
 ) -> Result<(), String> {
     let stripped_semicolon = line.replace(";", " ");
     let parts: Vec<&str> = stripped_semicolon.split_whitespace().collect();
@@ -214,10 +215,10 @@ fn parse_trip_pairs(
     }
     for &[destination_id, colon, demand_value] in parts.as_chunks::<3>().0 {
         let destination_id = destination_id
-            .parse::<usize>()
+            .parse::<i64>()
             .map_err(|err| format!("Invalid destination id in trip pairs: {}", err))?;
         let destination_node_idx =
-            *tntp_net
+            *ext_graph
                 .node_idx_by_id
                 .get(&destination_id)
                 .ok_or_else(|| {
@@ -240,7 +241,7 @@ fn parse_trip_pairs(
     Ok(())
 }
 
-pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String> {
+pub fn read_trips_file(path: &Path, ext_graph: &ExternalGraph) -> Result<Demand, String> {
     let file = File::open(path)
         .map_err(|err| format!("Failed to open trips file {}: {}", path.display(), err))?;
     let reader = BufReader::new(file);
@@ -270,10 +271,10 @@ pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String
                     trimmed
                 ));
             }
-            let origin_id = parts[1].parse::<usize>().map_err(|err| {
+            let origin_id = parts[1].parse::<i64>().map_err(|err| {
                 format!("{}:{}: Invalid origin id, {}", line_no, path.display(), err)
             })?;
-            let origin_node_idx = tntp_net.node_idx_by_id.get(&origin_id).ok_or_else(|| {
+            let origin_node_idx = ext_graph.node_idx_by_id.get(&origin_id).ok_or_else(|| {
                 format!(
                     "Line {:}: Origin id {} not found in network nodes",
                     line_no, origin_id
@@ -291,7 +292,7 @@ pub fn read_trips_file(path: &Path, tntp_net: &TNTPNet) -> Result<Demand, String
             )
         })?;
 
-        parse_trip_pairs(trimmed, origin_node_idx, &mut demand, tntp_net)?;
+        parse_trip_pairs(trimmed, origin_node_idx, &mut demand, ext_graph)?;
     }
 
     info!(

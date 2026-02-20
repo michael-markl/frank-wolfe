@@ -139,18 +139,17 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
         costs: &impl CostValuesOps,
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
-    ) -> (Float, Vec<EdgeIdx>, BundleIdx) {
+    ) -> Option<(Float, Vec<EdgeIdx>, BundleIdx)> {
         let destination_node_idx = demand.node_idx_by_destination(destination_idx);
         if destination_node_idx == self.source_idx {
-            return (0.0, vec![], BUNDLE_IDX_EMPTY);
+            return Some((0.0, vec![], BUNDLE_IDX_EMPTY));
         }
 
         let distance = self.compute_distance(graph, demand, costs, destination_idx, bundles);
 
         let destination_entry = self
             .distances
-            .get(&destination_node_idx)
-            .expect("Destination must be reachable from source");
+            .get(&destination_node_idx)?;
 
         let mut path = vec![];
 
@@ -183,7 +182,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
             );
         }
 
-        (distance, path, destination_entry.cheapest)
+        Some((distance, path, destination_entry.cheapest))
     }
 
     pub fn compute_distance(
@@ -227,7 +226,8 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                 });
         }
 
-        while let Some(((node_idx, bundle_idx), entry)) = self.queue.pop() {
+        while self.queue.peek().is_some_and(|it| it.1.cost_estimate_to_destination < Float::INFINITY) {
+            let ((node_idx, bundle_idx), entry) = self.queue.pop().unwrap();
             let pred_node = entry
                 .predecessor
                 .as_ref()
@@ -379,10 +379,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
             }
         }
 
-        panic!(
-            "No path found from source node {} to destination node {}, idx {}",
-            self.source_idx, destination_node_idx, destination_idx
-        );
+        return Float::INFINITY;
     }
 }
 

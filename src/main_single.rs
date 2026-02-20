@@ -2,19 +2,10 @@ use std::sync::RwLock;
 
 use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
-use log::{error, info};
+use log::info;
 
 use crate::{
-    astar::AStarTable,
-    bmw_function::BMWFunction,
-    bundle_index::BundleIndex,
-    common::{Float, MyDotAccumulator},
-    demand::DemandOps,
-    edge_based_convex_program::EdgeBasedConvexProgramInstance,
-    frank_wolfe::solve_convex_program,
-    graph_ops::GraphOps,
-    io::csv::write_flow_csv,
-    io::tntp::{read_net_file, read_trips_file},
+    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{Float, MyDotAccumulator}, demand::DemandOps, frank_wolfe::solve_convex_program, graph_ops::GraphOps, io::{self, csv::write_edge_flow_csv, sqlite::write_solution}, path_based_convex_program::PathBasedConvexProgramInstance, path_index::PathIndex
 };
 
 #[derive(Parser, Debug)]
@@ -45,19 +36,22 @@ pub struct SingleArgs {
     )]
     max_iter: usize,
 
-    #[arg(long = "out_flow")]
-    out_flow: Option<std::path::PathBuf>,
+    #[arg(long = "out_flow_csv")]
+    out_flow_csv: Option<std::path::PathBuf>,
+
+    #[arg(long = "out_flow_sqlite")]
+    out_flow_sqlite: Option<std::path::PathBuf>,
+
+    #[arg(long = "with_paths")]
+    with_paths: bool,
 }
 
 pub fn main_single(args: SingleArgs) {
-    let tntp_net = read_net_file(&args.tntp_net)
-        .map_err(|err| error!("Error reading net file: {}", err))
-        .unwrap();
-    let demand = read_trips_file(&args.tntp_trips, &tntp_net)
-        .map_err(|err| error!("Error reading trips file: {}", err))
-        .unwrap();
+    let ext_graph = io::read_graph(&args.tntp_net);
+    let (demand, commodity_idx_by_id) = io::read_demand(&args.tntp_trips, &ext_graph);
 
-    let mut graph = tntp_net.graph;
+    let mut graph = ext_graph.graph;
+    let edge_idx_by_id = ext_graph.edge_idx_by_id;
 
     if let Some(min_per_time_unit) = args.min_per_time_unit {
         for edge_idx in 0..graph.num_edges() {
@@ -77,19 +71,26 @@ pub fn main_single(args: SingleArgs) {
     let mut astar_table = AStarTable::create(graph.num_nodes(), demand.num_destinations());
     astar_table.fill_table(&graph, &demand);
 
-    let instance = EdgeBasedConvexProgramInstance {
+    let mut path_index = PathIndex::new();
+
+    let mut instance = PathBasedConvexProgramInstance {
         graph: &graph,
         demand: &demand,
         astar_table: &astar_table,
         bundle_index: &bundle_index,
+        path_index: &mut path_index,
     };
 
     let result = solve_convex_program(
         instance.compute_initial_solution(),
-        instance,
+        &mut instance,
         args.rel_gap,
         args.max_iter,
     );
+
+    if cfg!(debug_assertions) {
+        result.solution.check_consistency(&path_index, &bundle_index.read().unwrap(), &demand, &graph);
+    }
 
     info!("Objective value: {:.6e}", result.objective_value);
     info!("Optimality gap: {:.6e}", result.optimality_gap);
@@ -114,7 +115,11 @@ pub fn main_single(args: SingleArgs) {
 
     info!("Total Travel Time: {:.6e}", total_travel_time);
 
-    if let Some(out_flow) = &args.out_flow {
-        write_flow_csv(&result.solution, out_flow, &graph);
+    if let Some(out_flow) = &args.out_flow_csv {
+        write_edge_flow_csv(&result.solution.edge_flow(), out_flow, &graph);
+    }
+
+    if let Some(out_flow_sqlite) = &args.out_flow_sqlite {
+        write_solution(out_flow_sqlite, &result.solution.edge_flow(), &graph, edge_idx_by_id.as_ref(), commodity_idx_by_id.as_ref(), Some(&result.solution.path_flow()), &path_index);
     }
 }
