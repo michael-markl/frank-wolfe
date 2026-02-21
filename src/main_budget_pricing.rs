@@ -1,13 +1,11 @@
 use std::sync::RwLock;
 
-use accurate::traits::{DotWithAccumulator, SumWithAccumulator};
+use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
-use env_logger::init;
 use log::{info, trace};
-use rayon::iter::ParallelIterator;
 
 use crate::{
-    astar::AStarTable, bmw_function::BMWFunction, bundle_index::{Bundle, BundleIndex}, col::{HashMap, map_new}, common::{EdgeIdx, Float, MyDotAccumulator, MySumAccumulator, PermitIdx}, demand::{Demand, DemandOps}, edge_based_convex_program::EdgeBasedConvexProgramInstance, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, graph::{EdgeParams, Graph, LpfMode}, graph_ops::GraphOps, io::{self}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution, path_index::PathIndex
+    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{Float, MyDotAccumulator}, demand::{Demand, DemandOps}, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, graph::Graph, graph_ops::GraphOps, io::{self}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution, path_index::PathIndex
 };
 
 #[derive(Parser, Debug)]
@@ -38,7 +36,7 @@ pub struct BudgetPricingArgs {
 
     #[arg(
         long = "reuse_solution",
-        default_value_t = true,
+        default_value_t = false,
         help = "Whether to reuse the solution from the previous price as the initial solution for the next price. \
                 Speeds up computation, but may lead to some noticeable artifacts if accuracy is low."
     )]
@@ -385,48 +383,5 @@ impl TollsStrategy for CarbonPricing {
             let edge = graph.edge_mut(edge_idx);
             edge.params.toll = price * edge.params.length;
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct CordonEdge {
-    inside: bool,
-    leads_inside: bool,
-}
-
-#[derive(Clone)]
-struct CordonPricingMap {
-    map: HashMap<EdgeIdx, CordonEdge>,
-}
-
-impl CordonPricingMap {
-    pub fn for_edge(&self, edge_idx: EdgeIdx) -> CordonEdge {
-        *self.map.get(&edge_idx).unwrap_or(&CordonEdge {
-            inside: false,
-            leads_inside: false,
-        })
-    }
-
-    pub fn from_csv(path: std::path::PathBuf) -> Self {
-        let mut map = map_new();
-        let mut rdr = csv::Reader::from_path(path).unwrap();
-        let headers = rdr.headers().unwrap();
-        let edge_id_col = headers.iter().position(|h| h == "edge_id").unwrap();
-        let leads_inside_col = headers.iter().position(|h| h == "leads_inside").unwrap();
-        let lies_inside_col = headers.iter().position(|h| h == "lies_inside").unwrap();
-        for result in rdr.records() {
-            let record = result.unwrap();
-            let edge_idx: EdgeIdx = record[edge_id_col].parse().unwrap();
-            let inside: bool = record[lies_inside_col].parse::<usize>().unwrap() > 0;
-            let leads_inside: bool = record[leads_inside_col].parse::<usize>().unwrap() > 0;
-            map.insert(
-                edge_idx,
-                CordonEdge {
-                    inside,
-                    leads_inside,
-                },
-            );
-        }
-        CordonPricingMap { map }
     }
 }
