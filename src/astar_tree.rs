@@ -226,7 +226,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                 });
         }
 
-        while self.queue.peek().is_some_and(|it| it.1.cost_estimate_to_destination < Float::INFINITY) {
+        while self.queue.peek().is_some_and(|(_, entry)| entry.cost_estimate_to_destination < Float::INFINITY) {
             let ((node_idx, bundle_idx), entry) = self.queue.pop().unwrap();
             let pred_node = entry
                 .predecessor
@@ -488,8 +488,12 @@ mod tests {
             0
         }
 
-        fn incoming_edges(&self, _node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx> {
-            std::iter::empty()
+        fn incoming_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx> {
+            self.edges
+                .iter()
+                .enumerate()
+                .filter(move |(_, (_, head, _))| *head == node_idx)
+                .map(|(edge_idx, _)| edge_idx)
         }
 
         fn outgoing_edges(&self, node_idx: NodeIdx) -> impl Iterator<Item = EdgeIdx> {
@@ -555,7 +559,7 @@ mod tests {
     fn test_compute_distance_same_source_different_destinations() {
         // Create a more complex graph with multiple paths:
         //             1 ----> 4 ----> 5 (dest 1)
-        //          1 /    2 /    3  /
+        //          1 /   2  /    3  /
         //           /      /       /
         // (source) 0     5/       /1
         //           \    /       /
