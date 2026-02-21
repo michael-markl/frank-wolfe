@@ -76,27 +76,30 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     instance: &mut I,
 ) -> Float {
     let derivative_zero_tol: Float = 1e-8;
-    let line_search_max_iters: usize = 20;
-
+    let line_search_max_iters: usize = 40;
     let mut low_alpha: Float = 0.0;
     let mut high_alpha: Float = 1.0;
 
     let mut low_sol = initial.clone();
 
-    // Short circuit using the convexity of the objective along the line segment.:
-    // If the directional derivative at "low" is non-negative, "low" is optimal.
-    if instance.directional_derivative(initial, direction) > derivative_zero_tol {
+    // Short circuit using the convexity of the objective along the line segment,
+    // since the directional derivative is non-decreasing in alpha.
+    // If the directional derivative at "low" is non-negative, "low" is minimal.
+    let mut low_deriv = instance.directional_derivative(initial, direction);
+    if low_deriv >= 0.0 {
         return 0.0;
     }
 
     let mut high_sol = initial.clone();
     high_sol.add_scaled(1.0, direction);
 
-    // Analogously, if the directional derivative at "high" is non-positive, "high" is optimal.
-    let high_deriv = instance.directional_derivative(&high_sol, direction);
-    if high_deriv < derivative_zero_tol {
+    // Analogously, if the directional derivative at "high" is non-positive, "high" is minimal.
+    let mut high_deriv = instance.directional_derivative(&high_sol, direction);
+    if high_deriv <= 0.0 {
         return 1.0;
-    }
+    } 
+
+    // INVARIANT: directional derivative is negative at low_alpha, and positive at high_alpha.
 
     let mut mid_sol: Option<Solution> = None;
 
@@ -112,20 +115,29 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
         let mid_sol = mid_sol.as_mut().unwrap();
         let mid_deriv = instance.directional_derivative(mid_sol, direction);
 
-        if mid_deriv.abs() < derivative_zero_tol {
+        if -derivative_zero_tol <= mid_deriv && mid_deriv <= 0.0 {
+            debug!("Mid derivative {:.6e} is within tolerance, returning mid_alpha = {:.6e}", mid_deriv, mid_alpha);
             return mid_alpha;
         }
 
         if mid_deriv > 0.0 {
             high_alpha = mid_alpha;
+            if high_deriv < mid_deriv {
+                debug!("Warning: high derivative increased from {:.6e} to {:.6e} when moving high_alpha from {:.6e} to {:.6e}", high_deriv, mid_deriv, high_alpha, mid_alpha);
+            }
+            high_deriv = mid_deriv;
             swap(&mut high_sol, mid_sol);
         } else {
             low_alpha = mid_alpha;
+            if low_deriv > mid_deriv {
+                debug!("Warning: low derivative decreased from {:.6e} to {:.6e} when moving low_alpha from {:.6e} to {:.6e}", low_deriv, mid_deriv, low_alpha, mid_alpha);
+            }
+            low_deriv = mid_deriv;
             swap(&mut low_sol, mid_sol);
         }
     }
 
-    0.5 * (low_alpha + high_alpha)
+    low_alpha
 }
 
 pub struct FrankWolfeResult<Solution> {
@@ -168,8 +180,8 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
         let relative_gap = gap / cur_obj_val;
 
         debug!(
-            "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
-            iteration, cur_obj_val, gap, relative_gap
+            "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}, linear obj val = {:.6e}",
+            iteration, cur_obj_val, gap, relative_gap, linear_solution.inner_product
         );
 
         if gap < 0.0 {
@@ -198,7 +210,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             let diff = cur_obj_val - new_obj_val;
             if diff < 0.0 {
                 warn!(
-                    "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
+                    "Warning: objective increased when moving towards linear solution. diff = {:.6e}.",
                     diff
                 );
             }
@@ -213,7 +225,7 @@ pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solu
             let diff = cur_obj_val - new_obj_val;
             if diff < 0.0 {
                 warn!(
-                    "Warning: objective increased when moving to linear solution. diff = {:.6e}.",
+                    "Warning: objective increased when moving towards linear solution. diff = {:.6e}.",
                     diff
                 );
             }
