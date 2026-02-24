@@ -67,7 +67,7 @@ impl BMWFunction {
                     p.toll + p.ff_time
                 } else {
                     let overload = actual - p.capacity;
-                    p.toll + p.ff_time * (1.0 + (overload / p.capacity).powi(OP_EXP))
+                    p.toll + p.ff_time * (1.0 + p.beta * (overload / p.capacity).powi(OP_EXP))
                 }
             }
         }
