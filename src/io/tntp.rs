@@ -4,11 +4,12 @@ use std::{
     path::Path,
 };
 
+use accurate::traits::SumWithAccumulator;
 use log::info;
 
 use crate::{
     col::{HashMap, map_new},
-    common::{BUNDLE_IDX_EMPTY, Float, NodeIdx},
+    common::{BUNDLE_IDX_EMPTY, Float, MySumAccumulator, NodeIdx},
     demand::Demand,
     graph::{EdgeParams, Graph, LpfMode}, io::ExternalGraph,
 };
@@ -297,7 +298,7 @@ pub fn read_trips_file(path: &Path, ext_graph: &ExternalGraph) -> Result<Demand,
 
     info!(
         "Total demand: {:.6e}",
-        demand.commodities().iter().map(|c| c.demand).sum::<Float>()
+        demand.commodities().iter().map(|c| c.demand).sum_with_accumulator::<MySumAccumulator>()
     );
 
     Ok(demand)

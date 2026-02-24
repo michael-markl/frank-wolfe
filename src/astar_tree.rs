@@ -422,7 +422,7 @@ fn compute_path_cost(
     let edge_costs = path
         .iter()
         .map(|&edge_idx| costs.get_edge_cost(edge_idx))
-        .sum::<Float>();
+        .sum_with_accumulator::<MySumAccumulator>();
     let mut bundle_idx = BUNDLE_IDX_EMPTY;
     for &edge_idx in path {
         let edge_bundle_idx = graph.edge_bundle(edge_idx);
@@ -441,7 +441,7 @@ fn compute_path_cost(
         .get_payload(bundle_idx)
         .permits()
         .map(|permit_idx| costs.get_permit_cost(permit_idx))
-        .sum::<Float>();
+        .sum_with_accumulator::<MySumAccumulator>();
 
     (edge_costs + permit_costs, bundle_idx)
 }

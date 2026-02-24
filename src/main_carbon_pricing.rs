@@ -1,6 +1,6 @@
 use std::sync::RwLock;
 
-use accurate::traits::{DotWithAccumulator, SumWithAccumulator};
+use accurate::traits::{DotWithAccumulator, ParallelSumWithAccumulator, SumWithAccumulator};
 use clap_derive::Parser;
 use log::{info, trace};
 use rayon::iter::ParallelIterator;
@@ -204,9 +204,9 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                                     !reachable.contains_key(&dest_node_idx)
                                 })
                                 .map(|&commodity_idx| demand.get_commodity(commodity_idx).demand)
-                                .sum::<Float>()
+                                .sum_with_accumulator::<MySumAccumulator>()
                         })
-                        .sum()
+                        .parallel_sum_with_accumulator::<MySumAccumulator>()
                 }
 
                 info!(
