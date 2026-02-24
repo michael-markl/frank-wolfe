@@ -2,7 +2,7 @@ use std::{io::Write, sync::RwLock};
 
 use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
-use log::{info, trace};
+use log::{error, info, trace};
 
 use crate::{
     astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{Float, MyDotAccumulator}, demand::{Demand, DemandOps}, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, graph::Graph, graph_ops::GraphOps, io::{self}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution, path_index::PathIndex
@@ -123,6 +123,14 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
     } else {
         None
     };
+
+    if let Some(sqlite_output_path) = &args.sqlite_output_path && sqlite_output_path.exists() {
+        error!(
+            "SQLite output file '{}' already exists. Please remove it or choose a different path.",
+            sqlite_output_path.display()
+        );
+        std::process::exit(1);
+    }
 
 
     let mut path_index = PathIndex::new();
