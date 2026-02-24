@@ -153,6 +153,8 @@ pub fn write_solution(
         "Failed to open sqlite database for writing '{}'",
         path.display()
     ));
+
+    db.execute("BEGIN TRANSACTION;").unwrap();
     db.execute("CREATE TABLE EDGE ( ID INTEGER, FLOW REAL, UTILIZATION REAL, COST REAL );")
         .unwrap();
     db.execute("CREATE TABLE GLOBAL ( COST REAL );").unwrap();
@@ -189,8 +191,6 @@ pub fn write_solution(
         )
         .unwrap();
 
-        db.execute("BEGIN TRANSACTION;").unwrap();
-
         let mut path_stmt = db
             .prepare("INSERT INTO PATH (ID, DEMAND_ID, FLOW) VALUES (?, ?, ?);")
             .unwrap();
@@ -225,7 +225,6 @@ pub fn write_solution(
                 edge_path_stmt.reset().unwrap();
             }
         }
-
-        db.execute("COMMIT;").unwrap();
     }
+    db.execute("END TRANSACTION;").unwrap();
 }
