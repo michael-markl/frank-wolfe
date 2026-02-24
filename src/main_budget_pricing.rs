@@ -31,7 +31,7 @@ pub struct BudgetPricingArgs {
     #[arg(long = "initial_price")]
     initial_price: Option<Float>,
 
-    #[arg(long = "binary_search_steps", default_value_t = 5)]
+    #[arg(long = "binary_search_steps", default_value_t = 10)]
     binary_search_steps: usize,
 
     #[arg(
@@ -329,6 +329,8 @@ pub fn exp_search_for_budget<'a>(
             break;
         }
 
+        price_lower_bound = price;
+
         solution = Some(result.solution);
 
         if step >= MAX_STEPS_EXP_SEARCH {
@@ -339,7 +341,13 @@ pub fn exp_search_for_budget<'a>(
 
     let mut price_upper_bound = price_upper_bound.unwrap();
     let mut solution_upper_bound = solution_upper_bound.unwrap();
-    
+
+    if price_lower_bound == price_upper_bound {
+        assert!(price_lower_bound == 0.0);
+        info!("Price 0 fulfills the budget constraint.");
+        return (price_upper_bound, solution_upper_bound);
+    }
+
     info!("Binary search for price fulfilling the budget constraint...");
 
     for binary_step in 0..binary_search_steps {
