@@ -1,4 +1,4 @@
-use std::sync::RwLock;
+use std::{io::Write, sync::RwLock};
 
 use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
@@ -59,10 +59,8 @@ pub struct BudgetPricingArgs {
     #[arg(long = "out_csv")]
     csv_output_path: Option<std::path::PathBuf>,
 
-    #[arg(long = "out_edge_csv_template")]
-    edge_flow_csv_output_path: Option<std::path::PathBuf>,
 
-    #[arg(long = "out_sqlite_template")]
+    #[arg(long = "out_sqlite")]
     sqlite_output_path: Option<std::path::PathBuf>,
 }
 
@@ -78,7 +76,7 @@ impl TollsStrategy for Box<dyn TollsStrategy> {
 
 pub fn main_budget_pricing(args: BudgetPricingArgs) {
     let ext_graph = io::read_graph(&args.graph);
-    let (demand, _commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
+    let (demand, commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
 
     let mut graph = ext_graph.graph;
 
@@ -129,7 +127,7 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
 
     let mut path_index = PathIndex::new();
 
-    exp_search_for_budget(
+    let result = exp_search_for_budget(
         &mut graph,
         &demand,
         &bundle_index,
@@ -208,6 +206,14 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
             });
         },
     );
+
+    if let Some(path) = args.sqlite_output_path {
+        let solution = result.1;
+        io::sqlite::write_solution(&path, solution.edge_flow(), &graph, ext_graph.edge_idx_by_id.as_ref(), commodity_idx_by_id.as_ref(), Some(solution.path_flow()), &path_index);
+        let mut wrt = std::io::BufWriter::new(std::fs::File::create(path.with_added_extension("price.txt")).unwrap());
+        writeln!(wrt, "{:}", result.0).unwrap();
+        wrt.flush().unwrap();
+    }
 }
 
 fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
