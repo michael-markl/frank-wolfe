@@ -114,7 +114,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
         }
     }
 
-    fn thru_aware_lower_bound(
+    fn through_aware_lower_bound(
         source_idx: NodeIdx,
         bounds: &B,
         node_idx: NodeIdx,
@@ -213,7 +213,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
             self.queue
                 .iter_mut()
                 .for_each(|((node_idx, bundle_idx), entry)| {
-                    let lower_bound = Self::thru_aware_lower_bound(
+                    let lower_bound = Self::through_aware_lower_bound(
                         self.source_idx,
                         self.bounds,
                         *node_idx,
@@ -313,7 +313,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                         entry.max_cost_from_source + permit_aware_edge_cost;
 
                     let cost_estimate_to_destination = new_max_cost_from_source
-                        + Self::thru_aware_lower_bound(
+                        + Self::through_aware_lower_bound(
                             self.source_idx,
                             self.bounds,
                             head,

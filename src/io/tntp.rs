@@ -69,14 +69,14 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
         .filter(|(_, it)| it.is_err() || !it.as_ref().unwrap().is_empty());
 
     let metadata = read_metadata(&mut lines_iter)?;
-    let first_thru_node = metadata
+    let first_through_node = metadata
         .get("FIRST THRU NODE")
         .map(|it| {
             str::parse::<i64>(it).map_err(|err| format!("Invalid FIRST THRU NODE value: {}", err))
         })
         .transpose()?;
 
-    info!("First thru node: {:?}", first_thru_node);
+    info!("First through node: {:?}", first_through_node);
 
     let (header_idx, header) = lines_iter
         .next()
@@ -171,8 +171,8 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     all_node_ids.dedup();
 
     for node_id in all_node_ids {
-        let allow_thru = first_thru_node.is_none_or(|first| node_id >= first);
-        let node_idx = graph.add_node(allow_thru);
+        let allows_through = first_through_node.is_none_or(|first| node_id >= first);
+        let node_idx = graph.add_node(allows_through);
         node_idx_by_id.insert(node_id, node_idx);
     }
 

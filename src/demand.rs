@@ -106,11 +106,11 @@ impl Demand {
             }
 
             let balance = inflow - destination_demand - outflow + origin_demand;
-            let check_thru = graph.node_allows_through_traffic(node_idx)
+            let check_through = graph.node_allows_through_traffic(node_idx)
                 || ((inflow - destination_demand).abs() < 1e-8
                     && (outflow - origin_demand).abs() < 1e-8);
 
-            if balance.abs() >= 1e-8 || !check_thru {
+            if balance.abs() >= 1e-8 || !check_through {
                 warn!(
                     "Flow conservation violated at node {}: inflow={}, outflow={}, origin_demand={}, destination_demand={}, balance={}",
                     node_idx, inflow, outflow, origin_demand, destination_demand, balance
