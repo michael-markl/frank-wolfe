@@ -287,9 +287,9 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 .iter()
                 .enumerate()
                 .map(|(edge_idx, &it)| {
+                    let p = &graph.edge(edge_idx).params;
                     (
-                        (BMWFunction::derivative(&graph.edge(edge_idx).params, it)
-                            - graph.edge(edge_idx).params.toll),
+                        (BMWFunction::derivative(p, it) - p.toll),
                         it,
                     )
                 })

@@ -158,7 +158,7 @@ pub fn write_solution(
     });
 
     db.execute("BEGIN TRANSACTION;").unwrap();
-    db.execute("CREATE TABLE EDGE ( ID INTEGER, FLOW REAL, UTILIZATION REAL, COST REAL );")
+    db.execute("CREATE TABLE EDGE ( ID INTEGER, FLOW REAL, UTILIZATION REAL, COST REAL, COST_WITH_TOLL REAL );")
         .unwrap();
     db.execute("CREATE TABLE GLOBAL ( COST REAL );").unwrap();
 
