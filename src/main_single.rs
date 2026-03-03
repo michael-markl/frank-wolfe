@@ -5,7 +5,16 @@ use clap_derive::Parser;
 use log::info;
 
 use crate::{
-    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{Float, MyDotAccumulator}, demand::DemandOps, frank_wolfe::solve_convex_program, graph_ops::GraphOps, io::{self, csv::write_edge_flow_csv, sqlite::write_solution}, path_based_convex_program::PathBasedConvexProgramInstance, path_index::PathIndex
+    astar::AStarTable,
+    bmw_function::BMWFunction,
+    bundle_index::BundleIndex,
+    common::{Float, MyDotAccumulator},
+    demand::DemandOps,
+    frank_wolfe::solve_convex_program,
+    graph_ops::GraphOps,
+    io::{self, csv::write_edge_flow_csv, sqlite::write_solution},
+    path_based_convex_program::PathBasedConvexProgramInstance,
+    path_index::PathIndex,
 };
 
 #[derive(Parser, Debug)]
@@ -89,7 +98,12 @@ pub fn main_single(args: SingleArgs) {
     );
 
     if cfg!(debug_assertions) {
-        result.solution.check_consistency(&path_index, &bundle_index.read().unwrap(), &demand, &graph);
+        result.solution.check_consistency(
+            &path_index,
+            &bundle_index.read().unwrap(),
+            &demand,
+            &graph,
+        );
     }
 
     info!("Objective value: {:.6e}", result.objective_value);
@@ -116,10 +130,18 @@ pub fn main_single(args: SingleArgs) {
     info!("Total Travel Time: {:.6e}", total_travel_time);
 
     if let Some(out_flow) = &args.out_flow_csv {
-        write_edge_flow_csv(&result.solution.edge_flow(), out_flow, &graph);
+        write_edge_flow_csv(result.solution.edge_flow(), out_flow, &graph);
     }
 
     if let Some(out_flow_sqlite) = &args.out_flow_sqlite {
-        write_solution(out_flow_sqlite, &result.solution.edge_flow(), &graph, edge_idx_by_id.as_ref(), commodity_idx_by_id.as_ref(), Some(&result.solution.path_flow()), &path_index);
+        write_solution(
+            out_flow_sqlite,
+            result.solution.edge_flow(),
+            &graph,
+            edge_idx_by_id.as_ref(),
+            commodity_idx_by_id.as_ref(),
+            Some(result.solution.path_flow()),
+            &path_index,
+        );
     }
 }

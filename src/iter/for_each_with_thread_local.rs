@@ -3,8 +3,6 @@ use std::cell::UnsafeCell;
 use rayon::iter::ParallelIterator;
 use thread_local::ThreadLocal;
 
-
-
 pub trait ForEachWithThreadLocal<T> {
     fn for_each_with_thread_local<S: Send>(
         self,

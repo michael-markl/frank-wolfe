@@ -149,10 +149,13 @@ pub fn write_solution(
         path,
         OpenFlags::default().with_create().with_read_write(),
     )
-    .expect(&format!(
-        "Failed to open sqlite database for writing '{}'",
-        path.display()
-    ));
+    .unwrap_or_else(|e| {
+        panic!(
+            "Failed to open sqlite database for writing '{}': {:#}",
+            path.display(),
+            e
+        )
+    });
 
     db.execute("BEGIN TRANSACTION;").unwrap();
     db.execute("CREATE TABLE EDGE ( ID INTEGER, FLOW REAL, UTILIZATION REAL, COST REAL );")
@@ -160,7 +163,7 @@ pub fn write_solution(
     db.execute("CREATE TABLE GLOBAL ( COST REAL );").unwrap();
 
     let mut stmt = db
-        .prepare("INSERT INTO EDGE (ID, FLOW, UTILIZATION, COST) VALUES (?, ?, ?, ?);")
+        .prepare("INSERT INTO EDGE (ID, FLOW, UTILIZATION, COST, COST_WITH_TOLL) VALUES (?, ?, ?, ?, ?);")
         .unwrap();
     for (edge_idx, &flow) in edge_flow.iter().enumerate() {
         let params = &graph.edge(edge_idx).params;
@@ -176,8 +179,12 @@ pub fn write_solution(
             flow / params.capacity
         };
         stmt.bind((3, utilization)).unwrap();
-        let cost = BMWFunction::derivative(&params, flow);
+        let mut no_toll_params = params.clone();
+        no_toll_params.toll = 0.0;
+        let cost = BMWFunction::derivative(&no_toll_params, flow);
         stmt.bind((4, cost)).unwrap();
+        let cost_with_toll = BMWFunction::derivative(&params, flow);
+        stmt.bind((5, cost_with_toll)).unwrap();
         stmt.next().unwrap();
         stmt.reset().unwrap();
     }

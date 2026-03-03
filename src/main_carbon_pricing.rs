@@ -96,7 +96,6 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         "Steps must be 1 if and only if min_price equals max_price"
     );
 
-
     let ext_graph = io::read_graph(&args.graph);
     let (demand, _commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
 
@@ -258,7 +257,6 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     } else {
         None
     };
-
 
     compute_solutions_for_price_range(
         &mut graph,

@@ -5,7 +5,19 @@ use clap_derive::Parser;
 use log::{error, info, trace};
 
 use crate::{
-    astar::AStarTable, bmw_function::BMWFunction, bundle_index::BundleIndex, common::{Float, MyDotAccumulator}, demand::{Demand, DemandOps}, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, graph::Graph, graph_ops::GraphOps, io::{self}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution, path_index::PathIndex
+    astar::AStarTable,
+    bmw_function::BMWFunction,
+    bundle_index::BundleIndex,
+    common::{Float, MyDotAccumulator},
+    demand::{Demand, DemandOps},
+    edge_based_solution::EdgeBasedSolution,
+    frank_wolfe::{FrankWolfeResult, solve_convex_program},
+    graph::Graph,
+    graph_ops::GraphOps,
+    io::{self},
+    path_based_convex_program::PathBasedConvexProgramInstance,
+    path_based_solution::PathBasedSolution,
+    path_index::PathIndex,
 };
 
 #[derive(Parser, Debug)]
@@ -58,7 +70,6 @@ pub struct BudgetPricingArgs {
 
     #[arg(long = "out_csv")]
     csv_output_path: Option<std::path::PathBuf>,
-
 
     #[arg(long = "out_sqlite")]
     sqlite_output_path: Option<std::path::PathBuf>,
@@ -124,14 +135,15 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
         None
     };
 
-    if let Some(sqlite_output_path) = &args.sqlite_output_path && sqlite_output_path.exists() {
+    if let Some(sqlite_output_path) = &args.sqlite_output_path
+        && sqlite_output_path.exists()
+    {
         error!(
             "SQLite output file '{}' already exists. Please remove it or choose a different path.",
             sqlite_output_path.display()
         );
         std::process::exit(1);
     }
-
 
     let mut path_index = PathIndex::new();
 
@@ -217,8 +229,18 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
 
     if let Some(path) = args.sqlite_output_path {
         let solution = result.1;
-        io::sqlite::write_solution(&path, solution.edge_flow(), &graph, ext_graph.edge_idx_by_id.as_ref(), commodity_idx_by_id.as_ref(), Some(solution.path_flow()), &path_index);
-        let mut wrt = std::io::BufWriter::new(std::fs::File::create(path.with_added_extension("price.txt")).unwrap());
+        io::sqlite::write_solution(
+            &path,
+            solution.edge_flow(),
+            &graph,
+            ext_graph.edge_idx_by_id.as_ref(),
+            commodity_idx_by_id.as_ref(),
+            Some(solution.path_flow()),
+            &path_index,
+        );
+        let mut wrt = std::io::BufWriter::new(
+            std::fs::File::create(path.with_added_extension("price.txt")).unwrap(),
+        );
         writeln!(wrt, "{:}", result.0).unwrap();
         wrt.flush().unwrap();
     }
@@ -289,7 +311,11 @@ pub fn exp_search_for_budget<'a>(
     let mut solution_upper_bound = None;
 
     loop {
-        let price = if step == 0 { 0.0 } else { initial_price * 2f64.powi(step as i32 - 1) };
+        let price = if step == 0 {
+            0.0
+        } else {
+            initial_price * 2f64.powi(step as i32 - 1)
+        };
 
         trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
@@ -321,7 +347,6 @@ pub fn exp_search_for_budget<'a>(
 
         on_step(step, price, &result, graph);
 
-
         if total_consumption <= budget {
             price_upper_bound = Some(price);
             solution_upper_bound = Some(result.solution.clone());
@@ -334,7 +359,10 @@ pub fn exp_search_for_budget<'a>(
         solution = Some(result.solution);
 
         if step >= MAX_STEPS_EXP_SEARCH {
-            panic!("Exponential search did not find a price fulfilling the budget constraint after {} steps.", MAX_STEPS_EXP_SEARCH);
+            panic!(
+                "Exponential search did not find a price fulfilling the budget constraint after {} steps.",
+                MAX_STEPS_EXP_SEARCH
+            );
         }
         step += 1;
     }
@@ -380,8 +408,6 @@ pub fn exp_search_for_budget<'a>(
             .enumerate()
             .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
             .dot_with_accumulator::<MyDotAccumulator>();
-
-            
 
         if total_consumption > budget {
             price_lower_bound = price;

@@ -97,7 +97,7 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     let mut high_deriv = instance.directional_derivative(&high_sol, direction);
     if high_deriv <= 0.0 {
         return 1.0;
-    } 
+    }
 
     // INVARIANT: directional derivative is negative at low_alpha, and positive at high_alpha.
 
@@ -116,21 +116,30 @@ pub fn line_search<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
         let mid_deriv = instance.directional_derivative(mid_sol, direction);
 
         if -derivative_zero_tol <= mid_deriv && mid_deriv <= 0.0 {
-            debug!("Mid derivative {:.6e} is within tolerance, returning mid_alpha = {:.6e}", mid_deriv, mid_alpha);
+            debug!(
+                "Mid derivative {:.6e} is within tolerance, returning mid_alpha = {:.6e}",
+                mid_deriv, mid_alpha
+            );
             return mid_alpha;
         }
 
         if mid_deriv > 0.0 {
             high_alpha = mid_alpha;
             if high_deriv < mid_deriv {
-                debug!("Warning: high derivative increased from {:.6e} to {:.6e} when moving high_alpha from {:.6e} to {:.6e}", high_deriv, mid_deriv, high_alpha, mid_alpha);
+                debug!(
+                    "Warning: high derivative increased from {:.6e} to {:.6e} when moving high_alpha from {:.6e} to {:.6e}",
+                    high_deriv, mid_deriv, high_alpha, mid_alpha
+                );
             }
             high_deriv = mid_deriv;
             swap(&mut high_sol, mid_sol);
         } else {
             low_alpha = mid_alpha;
             if low_deriv > mid_deriv {
-                debug!("Warning: low derivative decreased from {:.6e} to {:.6e} when moving low_alpha from {:.6e} to {:.6e}", low_deriv, mid_deriv, low_alpha, mid_alpha);
+                debug!(
+                    "Warning: low derivative decreased from {:.6e} to {:.6e} when moving low_alpha from {:.6e} to {:.6e}",
+                    low_deriv, mid_deriv, low_alpha, mid_alpha
+                );
             }
             low_deriv = mid_deriv;
             swap(&mut low_sol, mid_sol);
@@ -338,7 +347,8 @@ mod tests {
         let initial_solution = SimpleSolution { x: 0.23, y: -0.3 };
         let mut instance = SimpleInstance;
 
-        let final_solution = solve_convex_program(initial_solution, &mut instance, 0.0, 100).solution;
+        let final_solution =
+            solve_convex_program(initial_solution, &mut instance, 0.0, 100).solution;
         assert!(final_solution.x.abs() < 1e-4);
         assert!(final_solution.y.abs() < 1e-4);
     }

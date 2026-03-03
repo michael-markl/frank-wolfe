@@ -1,14 +1,12 @@
-
-use crate::{common::Float, graph::{EdgeParams, LpfMode}};
+use crate::{
+    common::Float,
+    graph::{EdgeParams, LpfMode},
+};
 
 pub struct BMWFunction {}
 
 fn max(a: Float, b: Float) -> Float {
-    if a > b {
-        a
-    } else {
-        b
-    }
+    if a > b { a } else { b }
 }
 
 const OP_EXP: i32 = 2;
@@ -25,7 +23,7 @@ impl BMWFunction {
                 x * (p.toll + p.ff_time)
                     + p.ff_time * p.beta / (5.0 * p.capacity.powi(4))
                         * ((x + p.offset).powi(5) - p.offset.powi(5))
-            },
+            }
             LpfMode::C => (p.toll + p.ff_time) * x,
             LpfMode::OP => {
                 let actual = x + p.offset;
@@ -48,18 +46,19 @@ impl BMWFunction {
                 // gamma^delta * [ (y + offset - gamma)^(delta+1) ]_{y=z}^{y=x}
                 let z = max(0.0, p.capacity - p.offset);
                 let overload = actual - p.capacity;
-                return x * (p.toll + p.ff_time) +
-                    p.ff_time * p.beta /
-                        ((OP_EXP + 1) as Float * p.capacity.powi(OP_EXP)) *
-                        (overload.powi(OP_EXP + 1) -
-                            (z + p.offset - p.capacity).powi(OP_EXP + 1));
+                return x * (p.toll + p.ff_time)
+                    + p.ff_time * p.beta / ((OP_EXP + 1) as Float * p.capacity.powi(OP_EXP))
+                        * (overload.powi(OP_EXP + 1)
+                            - (z + p.offset - p.capacity).powi(OP_EXP + 1));
             }
         }
     }
 
     pub fn derivative(p: &EdgeParams, x: Float) -> Float {
         match p.mode {
-            LpfMode::BPR => p.toll + p.ff_time * (1.0 + p.beta * ((x + p.offset) / p.capacity).powi(4)),
+            LpfMode::BPR => {
+                p.toll + p.ff_time * (1.0 + p.beta * ((x + p.offset) / p.capacity).powi(4))
+            }
             LpfMode::C => p.toll + p.ff_time,
             LpfMode::OP => {
                 let actual = x + p.offset;

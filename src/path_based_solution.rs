@@ -1,4 +1,3 @@
-
 use accurate::traits::DotWithAccumulator;
 
 use crate::{
@@ -86,7 +85,11 @@ impl PathBasedSolution {
         let mut max_inconsistency = 0.0;
         for (idx, (implied, actual)) in implied_edge_flow.iter().zip(&self.edge_flow).enumerate() {
             let diff = (implied - actual).abs();
-            max_inconsistency = if diff > max_inconsistency { diff } else { max_inconsistency };
+            max_inconsistency = if diff > max_inconsistency {
+                diff
+            } else {
+                max_inconsistency
+            };
             assert!(
                 diff < 1e-6,
                 "Inconsistent edge flow for edge {}: implied {}, actual {}",
@@ -102,7 +105,11 @@ impl PathBasedSolution {
             .enumerate()
         {
             let diff = (implied - actual).abs();
-            max_inconsistency = if diff > max_inconsistency { diff } else { max_inconsistency };
+            max_inconsistency = if diff > max_inconsistency {
+                diff
+            } else {
+                max_inconsistency
+            };
             assert!(
                 diff < 1e-6,
                 "Inconsistent permit flow for permit {}: implied {}, actual {}",
@@ -112,9 +119,15 @@ impl PathBasedSolution {
             );
         }
 
-        for (idx, (implied, commodity)) in implied_demand.iter().zip(demand.commodities()).enumerate() {
+        for (idx, (implied, commodity)) in
+            implied_demand.iter().zip(demand.commodities()).enumerate()
+        {
             let diff = (implied - commodity.demand).abs();
-            max_inconsistency = if diff > max_inconsistency { diff } else { max_inconsistency };
+            max_inconsistency = if diff > max_inconsistency {
+                diff
+            } else {
+                max_inconsistency
+            };
             assert!(
                 diff < 1e-6,
                 "Inconsistent demand flow for commodity {}: implied {}, actual {}",
@@ -143,7 +156,7 @@ impl SolutionOps for PathBasedSolution {
 
         let mut path_flow: HashMap<(CommodityIdx, PathIdx), Float> = sol1.path_flow.clone();
         for (key, &val) in &sol2.path_flow {
-            *path_flow.entry(key.clone()).or_insert(0.0) += scale2 * val;
+            *path_flow.entry(*key).or_insert(0.0) += scale2 * val;
         }
 
         PathBasedSolution {
@@ -173,7 +186,7 @@ impl SolutionOps for PathBasedSolution {
 
         self.path_flow = sol1.path_flow.clone();
         for (key, &val) in &sol2.path_flow {
-            *self.path_flow.entry(key.clone()).or_insert(0.0) += scale2 * val;
+            *self.path_flow.entry(*key).or_insert(0.0) += scale2 * val;
         }
     }
 
@@ -186,7 +199,7 @@ impl SolutionOps for PathBasedSolution {
         }
 
         for (key, &val) in &other.path_flow {
-            *self.path_flow.entry(key.clone()).or_insert(0.0) += scale * val;
+            *self.path_flow.entry(*key).or_insert(0.0) += scale * val;
         }
     }
 }

@@ -1,9 +1,6 @@
 use serde::Serialize;
 
-use crate::{
-    bmw_function::BMWFunction, common::Float, graph::Graph,
-    graph_ops::GraphOps,
-};
+use crate::{bmw_function::BMWFunction, common::Float, graph::Graph, graph_ops::GraphOps};
 
 #[derive(Debug, Serialize)]
 struct EdgeFlowCsvEntry {
@@ -15,11 +12,7 @@ struct EdgeFlowCsvEntry {
     travel_time_per_unit: Float,
 }
 
-pub fn write_edge_flow_csv(
-    edge_flow: &[Float],
-    flow_csv_path: &std::path::PathBuf,
-    graph: &Graph,
-) {
+pub fn write_edge_flow_csv(edge_flow: &[Float], flow_csv_path: &std::path::PathBuf, graph: &Graph) {
     let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
 
     for edge_idx in 0..graph.num_edges() {

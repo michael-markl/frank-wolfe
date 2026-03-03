@@ -4,7 +4,6 @@ use accurate::dot::traits::DotWithAccumulator;
 use accurate::traits::{SumAccumulator, SumWithAccumulator};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 
-
 use crate::col::HashMap;
 use crate::common::{BUNDLE_IDX_EMPTY, MyDotAccumulator, MySumAccumulator};
 use crate::iter::for_each_with_thread_local::ForEachWithThreadLocal;
@@ -198,10 +197,7 @@ impl<'g, 'd, 't, 'b, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
             })
             .collect::<Vec<_>>();
 
-        let y = self.compute_shortest_path_flow(
-            &edge_gradient_at_x,
-            &permit_gradient_at_x,
-        );
+        let y = self.compute_shortest_path_flow(&edge_gradient_at_x, &permit_gradient_at_x);
         let diff = PathBasedSolution::from_linear_combination(&y, -1.0, x);
         let inner_product = edge_gradient_at_x
             .iter()

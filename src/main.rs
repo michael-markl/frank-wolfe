@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
 use crate::{
-    bmw_function::BMWFunction, main_budget_pricing::{BudgetPricingArgs, main_budget_pricing}, main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing}, main_single::{SingleArgs, main_single}
+    bmw_function::BMWFunction,
+    main_budget_pricing::{BudgetPricingArgs, main_budget_pricing},
+    main_carbon_pricing::{CarbonPricingArgs, main_carbon_pricing},
+    main_single::{SingleArgs, main_single},
 };
 
 mod astar;
@@ -19,12 +22,12 @@ mod graph_ops;
 mod index;
 mod io;
 mod iter;
-mod main_carbon_pricing;
 mod main_budget_pricing;
+mod main_carbon_pricing;
 mod main_single;
-mod path_index;
-mod path_based_solution;
 mod path_based_convex_program;
+mod path_based_solution;
+mod path_index;
 
 #[derive(Parser)]
 #[command(name = "frank-wolfe")]

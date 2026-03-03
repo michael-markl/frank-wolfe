@@ -7,9 +7,10 @@ use crate::{
 pub enum LpfMode {
     BPR,
     C,
-    OP
+    OP,
 }
 
+#[derive(Clone)]
 pub struct EdgeParams {
     pub mode: LpfMode,
     pub toll: Float,

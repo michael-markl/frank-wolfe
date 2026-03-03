@@ -1,5 +1,8 @@
 use crate::{
-    col::{HashMap, map_new}, common::{CommodityIdx, DestinationIdx, Float, NodeIdx}, edge_based_solution::EdgeBasedSolution, graph_ops::GraphOps
+    col::{HashMap, map_new},
+    common::{CommodityIdx, DestinationIdx, Float, NodeIdx},
+    edge_based_solution::EdgeBasedSolution,
+    graph_ops::GraphOps,
 };
 use log::warn;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -75,11 +78,7 @@ impl Demand {
             .map(|(it, vec)| (it, vec.as_slice()))
     }
 
-    pub fn check_solution(
-        &self,
-        solution: &EdgeBasedSolution,
-        graph: &impl GraphOps,
-    ) {
+    pub fn check_solution(&self, solution: &EdgeBasedSolution, graph: &impl GraphOps) {
         // Check flow conservation at every node
         for node_idx in 0..graph.num_nodes() {
             let mut inflow = 0.0;

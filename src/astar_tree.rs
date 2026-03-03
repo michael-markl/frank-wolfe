@@ -147,9 +147,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
 
         let distance = self.compute_distance(graph, demand, costs, destination_idx, bundles);
 
-        let destination_entry = self
-            .distances
-            .get(&destination_node_idx)?;
+        let destination_entry = self.distances.get(&destination_node_idx)?;
 
         let mut path = vec![];
 
@@ -226,7 +224,11 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                 });
         }
 
-        while self.queue.peek().is_some_and(|(_, entry)| entry.cost_estimate_to_destination < Float::INFINITY) {
+        while self
+            .queue
+            .peek()
+            .is_some_and(|(_, entry)| entry.cost_estimate_to_destination < Float::INFINITY)
+        {
             let ((node_idx, bundle_idx), entry) = self.queue.pop().unwrap();
             let pred_node = entry
                 .predecessor
@@ -275,9 +277,13 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
                     }
                     Entry::Occupied(mut occupied) => {
                         let distance_entry = occupied.get_mut();
-                        let previous = distance_entry
-                            .by_bundle
-                            .insert(bundle_idx, AStarDistanceBundleEntry { cost_from_source: entry.max_cost_from_source, predecessor });
+                        let previous = distance_entry.by_bundle.insert(
+                            bundle_idx,
+                            AStarDistanceBundleEntry {
+                                cost_from_source: entry.max_cost_from_source,
+                                predecessor,
+                            },
+                        );
                         assert!(
                             previous.is_none(),
                             "Node {} was reached multiple times with the same bundle idx {}, which should not happen in A*: {:?}",
@@ -458,9 +464,7 @@ mod tests {
 
     impl TestGraph {
         fn new() -> Self {
-            TestGraph {
-                edges: Vec::new(),
-            }
+            TestGraph { edges: Vec::new() }
         }
 
         fn add_edge(&mut self, tail: NodeIdx, head: NodeIdx, cost: Float) -> EdgeIdx {

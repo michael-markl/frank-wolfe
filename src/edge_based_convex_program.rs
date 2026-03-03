@@ -73,13 +73,15 @@ impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
                 commodity_indices.iter().for_each(move |&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let destination_idx = commodity.destination_idx;
-                    let (_cost, path, bundle_idx) = tree.compute_shortest_path(
-                        self.graph,
-                        self.demand,
-                        costs,
-                        destination_idx,
-                        self.bundle_index,
-                    ).unwrap();
+                    let (_cost, path, bundle_idx) = tree
+                        .compute_shortest_path(
+                            self.graph,
+                            self.demand,
+                            costs,
+                            destination_idx,
+                            self.bundle_index,
+                        )
+                        .unwrap();
                     for edge_idx in path {
                         edge_flow[edge_idx] += commodity.demand;
                     }
