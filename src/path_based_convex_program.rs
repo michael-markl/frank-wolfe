@@ -21,15 +21,15 @@ use crate::{
     graph_ops::GraphOps,
 };
 
-pub struct PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'idx, 'p> {
+pub struct PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi, 'idx, 'p> {
     pub graph: &'g Graph,
     pub demand: &'d Demand,
     pub astar_table: &'t AStarTable,
-    pub bundle_index: &'b RwLock<BundleIndex<'b>>,
+    pub bundle_index: &'b RwLock<BundleIndex<'bi>>,
     pub path_index: &'p mut PathIndex<'idx>,
 }
 
-impl<'g, 'd, 't, 'b, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'idx, 'p> {
+impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi, 'idx, 'p> {
     pub fn compute_initial_solution(&mut self) -> PathBasedSolution {
         let edge_costs: Vec<f64> = (0..self.graph.num_edges())
             .map(|edge_idx| BMWFunction::derivative(&self.graph.edge(edge_idx).params, 0.0))
@@ -134,8 +134,8 @@ impl<'g, 'd, 't, 'b, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'i
     }
 }
 
-impl<'g, 'd, 't, 'b, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
-    for PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'idx, 'p>
+impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
+    for PathBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi, 'idx, 'p>
 {
     fn directional_derivative(
         &mut self,

@@ -21,14 +21,14 @@ use crate::{
     graph_ops::GraphOps,
 };
 
-pub struct EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
+pub struct EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi> {
     pub graph: &'g Graph,
     pub demand: &'d Demand,
     pub astar_table: &'t AStarTable,
-    pub bundle_index: &'b RwLock<BundleIndex<'b>>,
+    pub bundle_index: &'b RwLock<BundleIndex<'bi>>,
 }
 
-impl<'g, 'd, 't, 'b> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b> {
+impl<'g, 'd, 't, 'b, 'bi> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi> {
     pub fn compute_initial_solution(&self) -> EdgeBasedSolution {
         let edge_costs: Vec<f64> = (0..self.graph.num_edges())
             .map(|edge_idx| BMWFunction::derivative(&self.graph.edge(edge_idx).params, 0.0))
@@ -143,8 +143,8 @@ impl<T, I: ParallelIterator<Item = T>> ForEachWithThreadLocal<T> for I {
     }
 }
 
-impl<'g, 'd, 't, 'b> ConvexProgramInstance<EdgeBasedSolution>
-    for EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b>
+impl<'g, 'd, 't, 'b, 'bi> ConvexProgramInstance<EdgeBasedSolution>
+    for EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi>
 {
     fn directional_derivative(
         &mut self,
