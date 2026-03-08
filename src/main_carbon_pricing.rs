@@ -18,6 +18,9 @@ use crate::{
     graph::{EdgeParams, Graph, LpfMode},
     graph_ops::GraphOps,
     io::{self},
+    path_based_convex_program::PathBasedConvexProgramInstance,
+    path_based_solution::PathBasedSolution,
+    path_index::PathIndex,
 };
 
 #[derive(Parser, Debug)]
@@ -76,6 +79,9 @@ pub struct CarbonPricingArgs {
 
     #[arg(long = "out_flow_template")]
     flow_output_path: Option<std::path::PathBuf>,
+
+    #[arg(long = "with_paths", default_value_t = false)]
+    with_paths: bool,
 }
 
 pub trait TollsStrategy {
@@ -258,132 +264,66 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         None
     };
 
-    compute_solutions_for_price_range(
-        &mut graph,
-        &demand,
-        &bundle_index,
-        (args.min_price, args.max_price),
-        args.steps,
-        tolls_strategy,
-        args.rel_gap,
-        args.max_iter,
-        args.reuse_solution,
-        |step, price, result, graph| {
-            demand.check_solution(&result.solution, graph);
+    if args.with_paths {
+        let mut path_index = PathIndex::new();
+        compute_solutions_for_price_range_with_paths(
+            &mut graph,
+            &demand,
+            &bundle_index,
+            &mut path_index,
+            (args.min_price, args.max_price),
+            args.steps,
+            tolls_strategy,
+            args.rel_gap,
+            args.max_iter,
+            args.reuse_solution,
+            |step, price, result, graph| {
+                handle_step_output(
+                    step,
+                    price,
+                    result,
+                    graph,
+                    result.solution.edge_flow(),
+                    result.solution.permit_flow(),
+                    args.steps,
+                    args.flow_output_path.as_ref(),
+                    cordon_pricing_map.as_ref(),
+                    &mut csv_writer,
+                );
+            },
+        );
+    } else {
+        compute_solutions_for_price_range(
+            &mut graph,
+            &demand,
+            &bundle_index,
+            (args.min_price, args.max_price),
+            args.steps,
+            tolls_strategy,
+            args.rel_gap,
+            args.max_iter,
+            args.reuse_solution,
+            |step, price, result, graph| {
+                demand.check_solution(&result.solution, graph);
 
-            if let Some(flow_output_path_template) = &args.flow_output_path {
-                let flow_csv_path = if args.steps == 1 {
-                    flow_output_path_template.with_added_extension("csv")
-                } else {
-                    let step = format!("{:03}", step);
-                    flow_output_path_template.with_added_extension(step + ".csv")
-                };
-                write_flow_csv(&result.solution, &flow_csv_path, graph)
-            }
-
-            let total_travel_time = result
-                .solution
-                .edge_flow()
-                .iter()
-                .enumerate()
-                .map(|(edge_idx, &it)| {
-                    let p = &graph.edge(edge_idx).params;
-                    (
-                        (BMWFunction::derivative(p, it) - p.toll),
-                        it,
-                    )
-                })
-                .dot_with_accumulator::<MyDotAccumulator>();
-
-            let total_user_cost =
-                result
-                    .solution
-                    .edge_flow()
-                    .iter()
-                    .enumerate()
-                    .map(|(edge_idx, &it)| {
-                        (
-                            BMWFunction::derivative(&graph.edge(edge_idx).params, it),
-                            it,
-                        )
-                    })
-                    .chain(result.solution.permit_flow().iter().enumerate().map(
-                        |(permit_idx, &it)| {
-                            (
-                                BMWFunction::derivative(&graph.permit(permit_idx).params, it),
-                                it,
-                            )
-                        },
-                    ))
-                    .dot_with_accumulator::<MyDotAccumulator>();
-
-            let total_consumption = result
-                .solution
-                .edge_flow()
-                .iter()
-                .enumerate()
-                .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
-                .dot_with_accumulator::<MyDotAccumulator>();
-
-            let consumption_inside = cordon_pricing_map.as_ref().map(|map| {
-                result
-                    .solution
-                    .edge_flow()
-                    .iter()
-                    .enumerate()
-                    .filter(|(edge_idx, _)| map.for_edge(*edge_idx).inside)
-                    .map(|(edge_idx, &it)| (graph.edge(edge_idx).params.length, it))
-                    .dot_with_accumulator::<MyDotAccumulator>()
-            });
-
-            let total_entrances = cordon_pricing_map.as_ref().map(|map| {
-                result
-                    .solution
-                    .edge_flow()
-                    .iter()
-                    .enumerate()
-                    .filter(|(edge_idx, _)| map.for_edge(*edge_idx).leads_inside)
-                    .map(|(_edge_idx, &it)| it)
-                    .sum_with_accumulator::<MySumAccumulator>()
-            });
-
-            let total_permit_flow = cordon_pricing_map.as_ref().map(|_| {
-                result
-                    .solution
-                    .permit_flow()
-                    .iter()
-                    .copied()
-                    .sum_with_accumulator::<MySumAccumulator>()
-            });
-
-            trace!(
-                "Step {}: Price = {:.6e}, Total travel time = {:.6e}, Total user cost = {:.6e}, Total consumption = {:.6e}",
-                step, price, total_travel_time, total_user_cost, total_consumption
-            );
-
-            csv_writer.iter_mut().for_each(|wtr| {
-                wtr.write_record(&[
-                    step.to_string(),
-                    price.to_string(),
-                    total_travel_time.to_string(),
-                    total_user_cost.to_string(),
-                    total_consumption.to_string(),
-                    consumption_inside.map_or("".to_string(), |v| v.to_string()),
-                    total_entrances.map_or("".to_string(), |v| v.to_string()),
-                    total_permit_flow.map_or("".to_string(), |v| v.to_string()),
-                    result.num_iterations.to_string(),
-                    result.objective_value.to_string(),
-                    result.optimality_gap.to_string(),
-                    result.relative_optimality_gap.to_string(),
-                ])
-                .unwrap();
-                wtr.flush().unwrap();
-            });
-        },
-    );
+                handle_step_output(
+                    step,
+                    price,
+                    result,
+                    graph,
+                    result.solution.edge_flow(),
+                    result.solution.permit_flow(),
+                    args.steps,
+                    args.flow_output_path.as_ref(),
+                    cordon_pricing_map.as_ref(),
+                    &mut csv_writer,
+                );
+            },
+        );
+    }
 }
 
-fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
+fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, graph: &Graph) {
     let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
 
     wtr.write_record([
@@ -396,7 +336,6 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
     ])
     .expect("Failed to write header");
 
-    let edge_flows = solution.edge_flow();
     for edge_idx in 0..graph.num_edges() {
         let edge = graph.edge(edge_idx);
         let flow = edge_flows[edge_idx];
@@ -419,10 +358,121 @@ fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathB
     wtr.flush().expect("Failed to flush CSV writer");
 }
 
-pub fn compute_solutions_for_price_range<'a>(
+fn flow_output_path_for_step(
+    flow_output_path_template: &std::path::PathBuf,
+    steps: usize,
+    step: usize,
+) -> std::path::PathBuf {
+    if steps == 1 {
+        flow_output_path_template.with_added_extension("csv")
+    } else {
+        flow_output_path_template.with_added_extension(format!("{:03}.csv", step))
+    }
+}
+
+fn handle_step_output<Solution>(
+    step: usize,
+    price: Float,
+    result: &FrankWolfeResult<Solution>,
+    graph: &Graph,
+    edge_flows: &[Float],
+    permit_flows: &[Float],
+    steps: usize,
+    flow_output_path_template: Option<&std::path::PathBuf>,
+    cordon_pricing_map: Option<&CordonPricingMap>,
+    csv_writer: &mut Option<csv::Writer<std::fs::File>>,
+) {
+    if let Some(flow_output_path_template) = flow_output_path_template {
+        let flow_csv_path = flow_output_path_for_step(flow_output_path_template, steps, step);
+        write_flow_csv(edge_flows, &flow_csv_path, graph);
+    }
+
+    let total_travel_time = edge_flows
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(edge_idx, it)| {
+            let p = &graph.edge(edge_idx).params;
+            ((BMWFunction::derivative(p, it) - p.toll), it)
+        })
+        .dot_with_accumulator::<MyDotAccumulator>();
+
+    let total_user_cost = edge_flows
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(edge_idx, it)| (BMWFunction::derivative(&graph.edge(edge_idx).params, it), it))
+        .chain(permit_flows.iter().copied().enumerate().map(|(permit_idx, it)| {
+            (
+                BMWFunction::derivative(&graph.permit(permit_idx).params, it),
+                it,
+            )
+        }))
+        .dot_with_accumulator::<MyDotAccumulator>();
+
+    let total_consumption = edge_flows
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(edge_idx, it)| (graph.edge(edge_idx).params.length, it))
+        .dot_with_accumulator::<MyDotAccumulator>();
+
+    let consumption_inside = cordon_pricing_map.map(|map| {
+        edge_flows
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(edge_idx, _)| map.for_edge(*edge_idx).inside)
+            .map(|(edge_idx, it)| (graph.edge(edge_idx).params.length, it))
+            .dot_with_accumulator::<MyDotAccumulator>()
+    });
+
+    let total_entrances = cordon_pricing_map.map(|map| {
+        edge_flows
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(edge_idx, _)| map.for_edge(*edge_idx).leads_inside)
+            .map(|(_, it)| it)
+            .sum_with_accumulator::<MySumAccumulator>()
+    });
+
+    let total_permit_flow = cordon_pricing_map.map(|_| {
+        permit_flows
+            .iter()
+            .copied()
+            .sum_with_accumulator::<MySumAccumulator>()
+    });
+
+    trace!(
+        "Step {}: Price = {:.6e}, Total travel time = {:.6e}, Total user cost = {:.6e}, Total consumption = {:.6e}",
+        step, price, total_travel_time, total_user_cost, total_consumption
+    );
+
+    csv_writer.iter_mut().for_each(|wtr| {
+        wtr.write_record(&[
+            step.to_string(),
+            price.to_string(),
+            total_travel_time.to_string(),
+            total_user_cost.to_string(),
+            total_consumption.to_string(),
+            consumption_inside.map_or("".to_string(), |v| v.to_string()),
+            total_entrances.map_or("".to_string(), |v| v.to_string()),
+            total_permit_flow.map_or("".to_string(), |v| v.to_string()),
+            result.num_iterations.to_string(),
+            result.objective_value.to_string(),
+            result.optimality_gap.to_string(),
+            result.relative_optimality_gap.to_string(),
+        ])
+        .unwrap();
+        wtr.flush().unwrap();
+    });
+}
+
+pub fn compute_solutions_for_price_range(
     graph: &mut Graph,
     demand: &Demand,
-    bundle_index: &'a RwLock<BundleIndex<'a>>,
+    bundle_index: &RwLock<BundleIndex>,
     price_range: (Float, Float),
     steps: usize,
     tolls_strategy: impl TollsStrategy,
@@ -431,7 +481,98 @@ pub fn compute_solutions_for_price_range<'a>(
     reuse_solution: bool,
     mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<EdgeBasedSolution>, &Graph),
 ) {
-    let mut solution: Option<EdgeBasedSolution> = None;
+    compute_solutions_for_price_range_generic(
+        graph,
+        demand,
+        price_range,
+        steps,
+        tolls_strategy,
+        |graph, demand, astar_table, previous_solution| {
+            let mut instance = EdgeBasedConvexProgramInstance {
+                graph,
+                demand,
+                astar_table,
+                bundle_index,
+            };
+
+            let initial_solution = if reuse_solution {
+                previous_solution.unwrap_or_else(|| instance.compute_initial_solution())
+            } else {
+                instance.compute_initial_solution()
+            };
+
+            solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter)
+        },
+        |step, price, result, graph| on_step(step, price, result, graph),
+    );
+}
+
+pub fn compute_solutions_for_price_range_with_paths(
+    graph: &mut Graph,
+    demand: &Demand,
+    bundle_index: &RwLock<BundleIndex>,
+    path_index: &mut PathIndex,
+    price_range: (Float, Float),
+    steps: usize,
+    tolls_strategy: impl TollsStrategy,
+    rel_gap: Float,
+    max_iter: usize,
+    reuse_solution: bool,
+    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<PathBasedSolution>, &Graph),
+) {
+    compute_solutions_for_price_range_generic(
+        graph,
+        demand,
+        price_range,
+        steps,
+        tolls_strategy,
+        |graph, demand, astar_table, previous_solution| {
+            let mut instance = PathBasedConvexProgramInstance {
+                graph,
+                demand,
+                astar_table,
+                bundle_index,
+                path_index,
+            };
+
+            let initial_solution = if reuse_solution {
+                previous_solution.unwrap_or_else(|| instance.compute_initial_solution())
+            } else {
+                instance.compute_initial_solution()
+            };
+
+            let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+
+            if cfg!(debug_assertions) {
+                result.solution.check_consistency(
+                    path_index,
+                    &bundle_index.read().unwrap(),
+                    demand,
+                    graph,
+                );
+            }
+
+            result
+        },
+        |step, price, result, graph| on_step(step, price, result, graph),
+    );
+}
+
+fn compute_solutions_for_price_range_generic<Solution>(
+    graph: &mut Graph,
+    demand: &Demand,
+    price_range: (Float, Float),
+    steps: usize,
+    tolls_strategy: impl TollsStrategy,
+    mut solve_step: impl FnMut(
+        &Graph,
+        &Demand,
+        &AStarTable,
+        Option<Solution>,
+    ) -> FrankWolfeResult<Solution>,
+    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<Solution>, &Graph),
+) {
+    let mut solution: Option<Solution> = None;
 
     let mut astar_table = AStarTable::create(graph.num_nodes(), demand.num_destinations());
     astar_table.fill_table(graph, demand);
@@ -446,22 +587,7 @@ pub fn compute_solutions_for_price_range<'a>(
         trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
 
-        let mut instance = EdgeBasedConvexProgramInstance {
-            graph,
-            demand,
-            astar_table: &astar_table,
-            bundle_index,
-        };
-
-        let initial_solution = if reuse_solution {
-            solution
-                .take()
-                .unwrap_or_else(|| instance.compute_initial_solution())
-        } else {
-            instance.compute_initial_solution()
-        };
-
-        let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+        let result = solve_step(graph, demand, &astar_table, solution.take());
 
         on_step(step, price, &result, graph);
         solution = Some(result.solution);
