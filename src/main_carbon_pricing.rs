@@ -10,7 +10,9 @@ use crate::{
     bmw_function::BMWFunction,
     bundle_index::{Bundle, BundleIndex},
     col::{HashMap, map_new},
-    common::{EdgeIdx, Float, MyDotAccumulator, MySumAccumulator, PermitIdx},
+    common::{
+        CommodityIdx, EdgeIdx, Float, MyDotAccumulator, MySumAccumulator, PathIdx, PermitIdx,
+    },
     demand::{Demand, DemandOps},
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
@@ -78,7 +80,10 @@ pub struct CarbonPricingArgs {
     csv_output_path: Option<std::path::PathBuf>,
 
     #[arg(long = "out_flow_template")]
-    flow_output_path: Option<std::path::PathBuf>,
+    flow_csv_output_path: Option<std::path::PathBuf>,
+
+    #[arg(long = "out_flow_sqlite_template")]
+    flow_sqlite_output_path: Option<std::path::PathBuf>,
 
     #[arg(long = "with_paths", default_value_t = false)]
     with_paths: bool,
@@ -103,7 +108,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     );
 
     let ext_graph = io::read_graph(&args.graph);
-    let (demand, _commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
+    let (demand, commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
 
     let mut graph = ext_graph.graph;
 
@@ -277,16 +282,20 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
             args.rel_gap,
             args.max_iter,
             args.reuse_solution,
-            |step, price, result, graph| {
+            |step, price, result, graph, path_index| {
                 handle_step_output(
                     step,
                     price,
                     result,
                     graph,
+                    ext_graph.edge_idx_by_id.as_ref(),
+                    commodity_idx_by_id.as_ref(),
                     result.solution.edge_flow(),
                     result.solution.permit_flow(),
+                    Some((result.solution.path_flow(), path_index)),
                     args.steps,
-                    args.flow_output_path.as_ref(),
+                    args.flow_csv_output_path.as_ref(),
+                    args.flow_sqlite_output_path.as_ref(),
                     cordon_pricing_map.as_ref(),
                     &mut csv_writer,
                 );
@@ -311,10 +320,14 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     price,
                     result,
                     graph,
+                    ext_graph.edge_idx_by_id.as_ref(),
+                    commodity_idx_by_id.as_ref(),
                     result.solution.edge_flow(),
                     result.solution.permit_flow(),
+                    None,
                     args.steps,
-                    args.flow_output_path.as_ref(),
+                    args.flow_csv_output_path.as_ref(),
+                    args.flow_sqlite_output_path.as_ref(),
                     cordon_pricing_map.as_ref(),
                     &mut csv_writer,
                 );
@@ -360,13 +373,14 @@ fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, grap
 
 fn flow_output_path_for_step(
     flow_output_path_template: &std::path::PathBuf,
+    extension: &str,
     steps: usize,
     step: usize,
 ) -> std::path::PathBuf {
     if steps == 1 {
-        flow_output_path_template.with_added_extension("csv")
+        flow_output_path_template.with_added_extension(extension)
     } else {
-        flow_output_path_template.with_added_extension(format!("{:03}.csv", step))
+        flow_output_path_template.with_added_extension(format!("{:03}.{}", step, extension))
     }
 }
 
@@ -375,16 +389,33 @@ fn handle_step_output<Solution>(
     price: Float,
     result: &FrankWolfeResult<Solution>,
     graph: &Graph,
+    edge_idx_by_id: Option<&HashMap<i64, EdgeIdx>>,
+    commodity_idx_by_id: Option<&HashMap<i64, CommodityIdx>>,
     edge_flows: &[Float],
     permit_flows: &[Float],
+    path_data: Option<(&HashMap<(CommodityIdx, PathIdx), Float>, &PathIndex)>,
     steps: usize,
-    flow_output_path_template: Option<&std::path::PathBuf>,
+    flow_csv_output_path_template: Option<&std::path::PathBuf>,
+    flow_sqlite_output_path_template: Option<&std::path::PathBuf>,
     cordon_pricing_map: Option<&CordonPricingMap>,
     csv_writer: &mut Option<csv::Writer<std::fs::File>>,
 ) {
-    if let Some(flow_output_path_template) = flow_output_path_template {
-        let flow_csv_path = flow_output_path_for_step(flow_output_path_template, steps, step);
+    if let Some(flow_output_path_template) = flow_csv_output_path_template {
+        let flow_csv_path =
+            flow_output_path_for_step(flow_output_path_template, "csv", steps, step);
         write_flow_csv(edge_flows, &flow_csv_path, graph);
+    }
+    if let Some(flow_output_path_template) = flow_sqlite_output_path_template {
+        let flow_sqlite_path =
+            flow_output_path_for_step(flow_output_path_template, "sqlite3", steps, step);
+        io::sqlite::write_solution(
+            &flow_sqlite_path,
+            edge_flows,
+            graph,
+            edge_idx_by_id,
+            commodity_idx_by_id,
+            path_data,
+        );
     }
 
     let total_travel_time = edge_flows
@@ -401,13 +432,24 @@ fn handle_step_output<Solution>(
         .iter()
         .copied()
         .enumerate()
-        .map(|(edge_idx, it)| (BMWFunction::derivative(&graph.edge(edge_idx).params, it), it))
-        .chain(permit_flows.iter().copied().enumerate().map(|(permit_idx, it)| {
+        .map(|(edge_idx, it)| {
             (
-                BMWFunction::derivative(&graph.permit(permit_idx).params, it),
+                BMWFunction::derivative(&graph.edge(edge_idx).params, it),
                 it,
             )
-        }))
+        })
+        .chain(
+            permit_flows
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(permit_idx, it)| {
+                    (
+                        BMWFunction::derivative(&graph.permit(permit_idx).params, it),
+                        it,
+                    )
+                }),
+        )
         .dot_with_accumulator::<MyDotAccumulator>();
 
     let total_consumption = edge_flows
@@ -487,7 +529,7 @@ pub fn compute_solutions_for_price_range(
         price_range,
         steps,
         tolls_strategy,
-        |graph, demand, astar_table, previous_solution| {
+        |step, price, graph, demand, astar_table, previous_solution| {
             let mut instance = EdgeBasedConvexProgramInstance {
                 graph,
                 demand,
@@ -501,9 +543,10 @@ pub fn compute_solutions_for_price_range(
                 instance.compute_initial_solution()
             };
 
-            solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter)
+            let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+            on_step(step, price, &result, graph);
+            result
         },
-        |step, price, result, graph| on_step(step, price, result, graph),
     );
 }
 
@@ -518,7 +561,7 @@ pub fn compute_solutions_for_price_range_with_paths(
     rel_gap: Float,
     max_iter: usize,
     reuse_solution: bool,
-    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<PathBasedSolution>, &Graph),
+    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<PathBasedSolution>, &Graph, &PathIndex),
 ) {
     compute_solutions_for_price_range_generic(
         graph,
@@ -526,7 +569,7 @@ pub fn compute_solutions_for_price_range_with_paths(
         price_range,
         steps,
         tolls_strategy,
-        |graph, demand, astar_table, previous_solution| {
+        |step, price, graph, demand, astar_table, previous_solution| {
             let mut instance = PathBasedConvexProgramInstance {
                 graph,
                 demand,
@@ -552,9 +595,10 @@ pub fn compute_solutions_for_price_range_with_paths(
                 );
             }
 
+            on_step(step, price, &result, graph, path_index);
+
             result
         },
-        |step, price, result, graph| on_step(step, price, result, graph),
     );
 }
 
@@ -565,12 +609,13 @@ fn compute_solutions_for_price_range_generic<Solution>(
     steps: usize,
     tolls_strategy: impl TollsStrategy,
     mut solve_step: impl FnMut(
+        usize,
+        Float,
         &Graph,
         &Demand,
         &AStarTable,
         Option<Solution>,
     ) -> FrankWolfeResult<Solution>,
-    mut on_step: impl FnMut(usize, Float, &FrankWolfeResult<Solution>, &Graph),
 ) {
     let mut solution: Option<Solution> = None;
 
@@ -587,9 +632,8 @@ fn compute_solutions_for_price_range_generic<Solution>(
         trace!("Step {}: Price = {:.6e}", step, price);
         tolls_strategy.set_tolls(graph, price);
 
-        let result = solve_step(graph, demand, &astar_table, solution.take());
+        let result = solve_step(step, price, graph, demand, &astar_table, solution.take());
 
-        on_step(step, price, &result, graph);
         solution = Some(result.solution);
     }
 }

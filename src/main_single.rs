@@ -140,8 +140,7 @@ pub fn main_single(args: SingleArgs) {
             &graph,
             edge_idx_by_id.as_ref(),
             commodity_idx_by_id.as_ref(),
-            Some(result.solution.path_flow()),
-            &path_index,
+            Some((result.solution.path_flow(), &path_index)),
         );
     }
 }

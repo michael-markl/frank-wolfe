@@ -130,8 +130,7 @@ pub fn write_solution(
     graph: &Graph,
     edge_idx_by_id: Option<&HashMap<i64, EdgeIdx>>,
     commodity_idx_by_id: Option<&HashMap<i64, CommodityIdx>>,
-    path_flow: Option<&HashMap<(CommodityIdx, PathIdx), Float>>,
-    path_index: &PathIndex,
+    path_data: Option<(&HashMap<(CommodityIdx, PathIdx), Float>, &PathIndex)>,
 ) {
     let edge_id_by_idx = edge_idx_by_id.map(|map| {
         map.iter()
@@ -190,7 +189,7 @@ pub fn write_solution(
     }
     drop(stmt);
 
-    if let Some(path_flow) = path_flow {
+    if let Some((path_flow, path_index)) = path_data {
         db.execute("CREATE TABLE PATH ( ID INTEGER, DEMAND_ID INTEGER, FLOW REAL );")
             .unwrap();
         db.execute(

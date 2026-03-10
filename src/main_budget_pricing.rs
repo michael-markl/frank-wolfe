@@ -235,8 +235,7 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
             &graph,
             ext_graph.edge_idx_by_id.as_ref(),
             commodity_idx_by_id.as_ref(),
-            Some(solution.path_flow()),
-            &path_index,
+            Some((solution.path_flow(), &path_index)),
         );
         let mut wrt = std::io::BufWriter::new(
             std::fs::File::create(path.with_added_extension("price.txt")).unwrap(),
