@@ -33,6 +33,25 @@ impl Bundle {
         merge_sorted(self.0.iter(), other.0.iter()).dedup().count()
     }
 
+    pub fn into_union(self: Box<Bundle>, other: &Bundle) -> Box<Bundle> {
+        let count = self.union_count(other);
+        if count == self.0.len() {
+            return self;
+        }
+
+        let mut array = Box::new_uninit_slice(count);
+
+        merge_sorted(self.0.iter(), other.0.iter())
+            .dedup()
+            .zip(array.iter_mut())
+            .for_each(|(permit, slot)| {
+                slot.write(*permit);
+            });
+        let boxed_slice = unsafe { array.assume_init() };
+
+        Bundle::new(boxed_slice)
+    }
+
     pub fn union(&self, other: &Bundle) -> Box<Bundle> {
         let count = self.union_count(other);
 
