@@ -92,6 +92,12 @@ impl PartialEq for TreeEntry {
 }
 impl Eq for TreeEntry {}
 
+pub struct ShortestPathResult {
+    pub distance: Float,
+    pub path: Vec<EdgeIdx>,
+    pub bundle_idx: BundleIdx,
+}
+
 impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
     pub fn new(source_idx: NodeIdx, bounds: &'a B) -> AStarTree<'a, B> {
         trace!("Creating A* tree with source node {}", source_idx);
@@ -139,10 +145,14 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
         costs: &impl CostValuesOps,
         destination_idx: DestinationIdx,
         bundles: &RwLock<BundleIndex>,
-    ) -> Option<(Float, Vec<EdgeIdx>, BundleIdx)> {
+    ) -> Option<ShortestPathResult> {
         let destination_node_idx = demand.node_idx_by_destination(destination_idx);
         if destination_node_idx == self.source_idx {
-            return Some((0.0, vec![], BUNDLE_IDX_EMPTY));
+            return Some(ShortestPathResult {
+                distance: 0.0,
+                path: vec![],
+                bundle_idx: BUNDLE_IDX_EMPTY,
+            });
         }
 
         let distance = self.compute_distance(graph, demand, costs, destination_idx, bundles);
@@ -180,7 +190,11 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
             );
         }
 
-        Some((distance, path, destination_entry.cheapest))
+        Some(ShortestPathResult {
+            distance,
+            path,
+            bundle_idx: destination_entry.cheapest,
+        })
     }
 
     pub fn compute_distance(

@@ -7,6 +7,7 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use thread_local::ThreadLocal;
 
+use crate::astar_tree::ShortestPathResult;
 use crate::common::{BUNDLE_IDX_EMPTY, MyDotAccumulator, MySumAccumulator};
 use crate::{
     BMWFunction,
@@ -73,7 +74,7 @@ impl<'g, 'd, 't, 'b, 'bi> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi> {
                 commodity_indices.iter().for_each(move |&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let destination_idx = commodity.destination_idx;
-                    let (_cost, path, bundle_idx) = tree
+                    let ShortestPathResult { distance: _cost, path, bundle_idx } = tree
                         .compute_shortest_path(
                             self.graph,
                             self.demand,

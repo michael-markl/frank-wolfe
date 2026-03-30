@@ -8,6 +8,7 @@ use crate::col::HashMap;
 use crate::common::{BUNDLE_IDX_EMPTY, MyDotAccumulator, MySumAccumulator};
 use crate::iter::for_each_with_thread_local::ForEachWithThreadLocal;
 use crate::path_based_solution::PathBasedSolution;
+use crate::astar_tree::ShortestPathResult;
 use crate::path_index::{Path, PathIndex};
 use crate::{
     BMWFunction,
@@ -75,7 +76,11 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                 commodity_indices.iter().for_each(|&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let destination_idx = commodity.destination_idx;
-                    let (_cost, path, bundle_idx) = tree
+                    let ShortestPathResult {
+                        distance: _cost,
+                        path,
+                        bundle_idx,
+                    } = tree
                         .compute_shortest_path(
                             self.graph,
                             self.demand,
