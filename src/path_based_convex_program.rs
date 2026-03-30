@@ -282,7 +282,6 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         &mut self,
         x: &PathBasedSolution,
         costs_at_x: &(impl CostValuesOps + Sync),
-        target_approximation: Float,
     ) -> (PathBasedSolution, Float, EdgeBasedSolution) {
         let paths_by_commodity = {
             let bundle_index = self.bundle_index.read().unwrap();
@@ -295,6 +294,59 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
             )
         };
 
+        let shortest_paths = {
+            let paths: Vec<Vec<(CommodityIdx, (Float, Vec<EdgeIdx>, BundleIdx))>> = self
+                .demand
+                .par_iter_by_origin()
+                .map(|(&origin_idx, commodities)| {
+                    let mut tree = AStarTree::new(origin_idx, self.astar_table);
+                    commodities
+                        .iter()
+                        .map(|&commodity_idx| {
+                            let commodity = self.demand.get_commodity(commodity_idx);
+                            let ShortestPathResult {
+                                distance,
+                                path,
+                                bundle_idx,
+                            } = tree
+                                .compute_shortest_path(
+                                    self.graph,
+                                    self.demand,
+                                    costs_at_x,
+                                    commodity.destination_idx,
+                                    self.bundle_index,
+                                )
+                                .expect("Destination is reachable.");
+                            (commodity_idx, (distance, path, bundle_idx))
+                        })
+                        .collect()
+                })
+                .collect();
+            paths.into_iter().flatten().collect::<HashMap<_, _>>()
+        };
+
+        let max_relative_regret = paths_by_commodity
+            .iter()
+            .flat_map(|(&commodity_idx, paths)| {
+                let distance = shortest_paths
+                    .get(&commodity_idx)
+                    .map(|(distance, _, _)| *distance)
+                    .expect("Shortest distance missing for commodity.");
+                paths
+                    .iter()
+                    .filter(|(_, _, flow)| *flow > 0.0)
+                    .map(move |(_, cost, _)| {
+                        if distance > 0.0 {
+                            *cost / distance - 1.0
+                        } else {
+                            0.0
+                        }
+                    })
+            })
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(0.0);
+        let high_regret_threshold = 0.5 * max_relative_regret;
+
         let init_flows = || {
             (
                 EdgeFlowAccumulator::new(self.graph.num_edges(), self.graph.num_permits()),
@@ -306,9 +358,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
 
         let flow_iter = self.demand.par_iter_by_origin().for_each_with_thread_local(
             init_flows,
-            |(&origin_idx, commodities),
-             (shortest_flow, reduced_flow, new_paths, approximation)| {
-                let mut tree = AStarTree::new(origin_idx, self.astar_table);
+            |(_, commodities), (shortest_flow, reduced_flow, new_paths, approximation)| {
                 commodities.iter().for_each(|&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let paths = paths_by_commodity.get(&commodity_idx);
@@ -316,35 +366,24 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                         return;
                     }
                     let paths = paths.unwrap();
-
-                    let ShortestPathResult {
-                        distance,
-                        path,
-                        bundle_idx,
-                    } = tree
-                        .compute_shortest_path(
-                            self.graph,
-                            self.demand,
-                            costs_at_x,
-                            commodity.destination_idx,
-                            self.bundle_index,
-                        )
-                        .expect("Destination is reachable.");
-
-                    let path = Path::from_edges(path);
+                    let (distance, shortest_path_edges, bundle_idx) = shortest_paths
+                        .get(&commodity_idx)
+                        .expect("Shortest path missing for commodity.");
+                    let distance = *distance;
+                    let path = Path::from_edges(shortest_path_edges.clone());
 
                     shortest_flow.add_path_bundle(
                         &path,
-                        bundle_idx,
+                        *bundle_idx,
                         self.bundle_index,
                         commodity.demand,
                     );
 
-                    // For the reduced flow, we keep flow on paths whose relative regret is below the target relative regret.
-                    let target_threshold = distance * target_approximation;
+                    // For the reduced flow, keep paths whose relative regret is at most
+                    // 90% of the global maximum relative regret.
                     {
                         // Update approximation
-                        let distance_reciprocal = 1.0 / distance;
+                        let distance_reciprocal = if distance > 0.0 { 1.0 / distance } else { 0.0 };
                         let flow_eps = 1e-8 * commodity.demand;
                         for (_, cost, flow) in paths.iter() {
                             let path_approx = cost * distance_reciprocal;
@@ -356,14 +395,28 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
 
                     let flow_below_target = paths
                         .iter()
-                        .filter(|(_, cost, _)| *cost <= target_threshold)
+                        .filter(|(_, cost, _)| {
+                            let relative_regret = if distance > 0.0 {
+                                *cost / distance - 1.0
+                            } else {
+                                0.0
+                            };
+                            relative_regret <= high_regret_threshold
+                        })
                         .map(|(_, _, flow)| *flow)
                         .sum_with_accumulator::<MySumAccumulator>();
                     let new_path_flow = partial_max(0.0, commodity.demand - flow_below_target);
 
                     paths
                         .iter()
-                        .filter(|(_, cost, _)| *cost <= target_threshold)
+                        .filter(|(_, cost, _)| {
+                            let relative_regret = if distance > 0.0 {
+                                *cost / distance - 1.0
+                            } else {
+                                0.0
+                            };
+                            relative_regret <= high_regret_threshold
+                        })
                         .for_each(|(path_idx, _, flow)| {
                             let path = self.path_index.get_payload(*path_idx);
                             reduced_flow.add_path(path, *flow, self.graph, self.bundle_index);
@@ -373,7 +426,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                     if new_path_flow > 0.0 {
                         reduced_flow.add_path_bundle(
                             &path,
-                            bundle_idx,
+                            *bundle_idx,
                             self.bundle_index,
                             new_path_flow,
                         );
@@ -423,10 +476,9 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         &mut self,
         mut result: FrankWolfeResult<PathBasedSolution>,
     ) -> FrankWolfeResult<PathBasedSolution> {
-        let desired_approximation: f64 = 1.0 + 2.0f64.powi(-7);
-        let max_iterations = 100;
+        let desired_approximation: f64 = 1.0 + 2.0f64.powi(-10);
+        let max_iterations = 300;
         let mut iteration = 0;
-        let mut curr_target_approximation = 2.0;
 
         info!("Removing high regret paths.");
 
@@ -441,12 +493,8 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                 compute_bmw_gradient_from_solution(&result.solution, self.graph);
             let costs = Costs(&edge_costs, &permit_costs);
 
-            let (new_solution, approximation, shortest_flow) = self
-                .compute_flow_altering_only_high_regret_commodities(
-                    &result.solution,
-                    &costs,
-                    curr_target_approximation,
-                );
+            let (new_solution, approximation, shortest_flow) =
+                self.compute_flow_altering_only_high_regret_commodities(&result.solution, &costs);
 
             {
                 // Compute new gap
@@ -476,23 +524,14 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
             );
 
             let num_paths = new_solution.path_flow().len();
-            let num_paths_with_positive_flow = new_solution
-                .path_flow()
-                .values()
-                .filter(|&flow| *flow > 0.0)
-                .count();
             debug!(
-                "Iteration {}, approximation: {}, target: {}, #paths: {}, #pos_paths: {}",
-                iteration,
-                approximation,
-                curr_target_approximation,
-                num_paths,
-                num_paths_with_positive_flow
+                "Iteration {}, approximation: {}, #paths: {}",
+                iteration, approximation, num_paths,
             );
 
             let direction =
                 PathBasedSolution::from_linear_combination(&new_solution, -1.0, &result.solution);
-            let (new_result, step_size) = frank_wolfe_step(result, self, new_solution, &direction);
+            let (new_result, _step_size) = frank_wolfe_step(result, self, new_solution, &direction);
             result = new_result;
             debug!(
                 "After FW-step: objective value: {:.6e}, optimality gap: {:.6e}, relative gap: {:.6e}",
@@ -505,13 +544,6 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                     approximation, desired_approximation
                 );
                 return result;
-            }
-
-            while approximation < curr_target_approximation {
-                curr_target_approximation = 1.0 + (curr_target_approximation - 1.0) * 0.5;
-            }
-            while approximation - 1.0 > (curr_target_approximation - 1.0) / 0.5 {
-                curr_target_approximation = 1.0 + (curr_target_approximation - 1.0) / 0.5;
             }
         }
     }
