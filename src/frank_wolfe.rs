@@ -157,107 +157,138 @@ pub struct FrankWolfeResult<Solution> {
     pub relative_optimality_gap: Float,
 }
 
+impl<Solution> FrankWolfeResult<Solution> {
+    pub fn improve_gap(&mut self, new_gap: Float) {
+        if new_gap < self.optimality_gap {
+            self.optimality_gap = new_gap;
+            self.relative_optimality_gap = new_gap / self.objective_value;
+        }
+    }
+
+    pub fn set_obj_val(&mut self, new_obj_val: Float) {
+        self.optimality_gap = self.optimality_gap - (self.objective_value - new_obj_val);
+        self.relative_optimality_gap = self.optimality_gap / new_obj_val;
+    }
+}
+
 pub fn solve_convex_program<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
     initial_solution: Solution,
     instance: &mut I,
     rel_gap_tol: Float,
     max_iterations: usize,
+    mut on_step: impl FnMut(&mut I, &Solution),
 ) -> FrankWolfeResult<Solution> {
     let abs_gap_tol: Float = 1e-8;
 
-    let mut cur_solution: Solution = initial_solution;
-    let mut cur_obj_val: Float = instance.compute_objective(&cur_solution);
-    let mut gap = Float::INFINITY;
+    let mut result = FrankWolfeResult {
+        num_iterations: 0,
+        objective_value: instance.compute_objective(&initial_solution),
+        solution: initial_solution,
+        optimality_gap: Float::INFINITY,
+        relative_optimality_gap: Float::INFINITY,
+    };
 
-    let mut iteration = 0;
     loop {
-        if iteration >= max_iterations {
+        // Note: result.num_iterations is incremented in [[frank_wolfe_step]].
+        if result.num_iterations >= max_iterations {
             info!("Reached maximum number of iterations.");
             break;
         }
-        iteration += 1;
 
-        let relative_gap = gap / cur_obj_val;
         debug!(
             "Before Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
-            iteration, cur_obj_val, gap, relative_gap
+            result.num_iterations,
+            result.objective_value,
+            result.optimality_gap,
+            result.relative_optimality_gap
         );
 
-        let mut linear_solution: LinearizedSubProblemSolution<Solution> =
-            instance.solve_subproblem(&cur_solution);
-        gap = partial_min(gap, -linear_solution.inner_product);
-        let relative_gap = gap / cur_obj_val;
+        let linear_solution = instance.solve_subproblem(&result.solution);
+
+        result.improve_gap(-linear_solution.inner_product);
 
         debug!(
             "During Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}, linear obj val = {:.6e}",
-            iteration, cur_obj_val, gap, relative_gap, linear_solution.inner_product
+            result.num_iterations,
+            result.objective_value,
+            result.optimality_gap,
+            result.relative_optimality_gap,
+            linear_solution.inner_product
         );
 
-        if gap < 0.0 {
+        if result.optimality_gap < 0.0 {
             warn!("Warning: negative optimality gap. We *should* be optimal.");
             break;
         }
-        if gap < abs_gap_tol {
+        if result.optimality_gap < abs_gap_tol {
             info!("Optimal solution found.");
             break;
         }
-        if relative_gap.abs() < rel_gap_tol {
+        if result.relative_optimality_gap.abs() < rel_gap_tol {
             info!("Desired relative optimality gap reached.");
             break;
         }
 
-        let step_size = line_search(&cur_solution, &linear_solution.direction, instance);
-        debug!("Line search step size: {:.6e}", step_size);
+        let (new_result, step_size) = frank_wolfe_step(
+            result,
+            instance,
+            linear_solution.solution,
+            &linear_solution.direction,
+        );
+        result = new_result;
+        on_step(instance, &result.solution);
+
         if step_size == 0.0 {
             warn!(
                 "Warning: step size is zero, but optimality goal not reached. We *should* be optimal."
             );
             break;
         }
-        if step_size == 1.0 {
-            let new_obj_val = instance.compute_objective(&linear_solution.solution);
-            let diff = cur_obj_val - new_obj_val;
-            if diff < 0.0 {
-                warn!(
-                    "Warning: objective increased when moving towards linear solution. diff = {:.6e}.",
-                    diff
-                );
-            }
-            gap -= diff;
-
-            swap(&mut cur_solution, &mut linear_solution.solution);
-            cur_obj_val = new_obj_val;
-        } else {
-            cur_solution.add_scaled(step_size, &linear_solution.direction);
-
-            let new_obj_val = instance.compute_objective(&cur_solution);
-            let diff = cur_obj_val - new_obj_val;
-            if diff < 0.0 {
-                warn!(
-                    "Warning: objective increased when moving towards linear solution. diff = {:.6e}.",
-                    diff
-                );
-            }
-            gap -= diff;
-
-            cur_obj_val = new_obj_val;
-        }
     }
 
     info!(
-        "Finished gradient descent with objective value {:.6e}, gap {:.6e}, relative gap {:.6e}",
-        cur_obj_val,
-        gap,
-        gap / cur_obj_val
+        "Finished Frank-Wolfe with objective value {:.6e}, gap {:.6e}, relative gap {:.6e}",
+        result.objective_value, result.optimality_gap, result.relative_optimality_gap
     );
 
-    FrankWolfeResult {
-        solution: cur_solution,
-        num_iterations: iteration,
-        objective_value: cur_obj_val,
-        optimality_gap: gap,
-        relative_optimality_gap: gap / cur_obj_val,
+    result
+}
+
+pub fn frank_wolfe_step<Solution: SolutionOps, I: ConvexProgramInstance<Solution>>(
+    mut result: FrankWolfeResult<Solution>,
+    instance: &mut I,
+    mut target_solution: Solution,
+    direction: &Solution,
+) -> (FrankWolfeResult<Solution>, Float) {
+    result.num_iterations += 1;
+    let step_size = line_search(&result.solution, direction, instance);
+    debug!("step size: {:.6e}", step_size);
+    if step_size == 0.0 {
+        return (result, step_size);
     }
+    if step_size == 1.0 {
+        swap(&mut result.solution, &mut target_solution);
+    } else {
+        result.solution.add_scaled(step_size, direction);
+    };
+    let new_obj_val = instance.compute_objective(&result.solution);
+    if new_obj_val > result.objective_value {
+        warn!(
+            "Warning: objective increased when moving towards target solution. diff = {:.6e}.",
+            new_obj_val - result.objective_value
+        );
+    }
+    result.set_obj_val(new_obj_val);
+
+    debug!(
+        "After Iteration {}: obj val = {:.6e}, gap = {:.6e}, relative gap = {:.6e}",
+        result.num_iterations,
+        result.objective_value,
+        result.optimality_gap,
+        result.relative_optimality_gap
+    );
+
+    (result, step_size)
 }
 
 #[cfg(test)]
@@ -348,7 +379,7 @@ mod tests {
         let mut instance = SimpleInstance;
 
         let final_solution =
-            solve_convex_program(initial_solution, &mut instance, 0.0, 100).solution;
+            solve_convex_program(initial_solution, &mut instance, 0.0, 100, |_, _| {}).solution;
         assert!(final_solution.x.abs() < 1e-4);
         assert!(final_solution.y.abs() < 1e-4);
     }

@@ -95,7 +95,10 @@ pub fn main_single(args: SingleArgs) {
         &mut instance,
         args.rel_gap,
         args.max_iter,
+        |_, _| {},
     );
+
+    let result = instance.remove_high_regret_paths(result);
 
     if cfg!(debug_assertions) {
         result.solution.check_consistency(

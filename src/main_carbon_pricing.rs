@@ -543,7 +543,13 @@ pub fn compute_solutions_for_price_range(
                 instance.compute_initial_solution()
             };
 
-            let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+            let result = solve_convex_program(
+                initial_solution,
+                &mut instance,
+                rel_gap,
+                max_iter,
+                |_, _| {},
+            );
             on_step(step, price, &result, graph);
             result
         },
@@ -584,7 +590,14 @@ pub fn compute_solutions_for_price_range_with_paths(
                 instance.compute_initial_solution()
             };
 
-            let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+            let result = solve_convex_program(
+                initial_solution,
+                &mut instance,
+                rel_gap,
+                max_iter,
+                |_, _| {},
+            );
+            let result = instance.remove_high_regret_paths(result);
 
             if cfg!(debug_assertions) {
                 result.solution.check_consistency(

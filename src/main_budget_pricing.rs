@@ -335,7 +335,13 @@ pub fn exp_search_for_budget<'a>(
             instance.compute_initial_solution()
         };
 
-        let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+        let result = solve_convex_program(
+            initial_solution,
+            &mut instance,
+            rel_gap,
+            max_iter,
+            |_, _| {},
+        );
         let total_consumption = result
             .solution
             .edge_flow()
@@ -399,7 +405,14 @@ pub fn exp_search_for_budget<'a>(
             instance.compute_initial_solution()
         };
 
-        let result = solve_convex_program(initial_solution, &mut instance, rel_gap, max_iter);
+        let result = solve_convex_program(
+            initial_solution,
+            &mut instance,
+            rel_gap,
+            max_iter,
+            |_, _| {},
+        );
+        let result = instance.remove_high_regret_paths(result);
         let total_consumption = result
             .solution
             .edge_flow()

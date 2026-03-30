@@ -1,4 +1,5 @@
 use accurate::traits::DotWithAccumulator;
+use log::info;
 
 use crate::{
     bundle_index::{Bundle, BundleIndex},
@@ -63,6 +64,7 @@ impl PathBasedSolution {
         demand: &Demand,
         graph: &impl GraphOps,
     ) {
+        info!("Checking consistency...");
         let mut implied_edge_flow = vec![0.0; self.edge_flow.len()];
         let mut implied_permit_flow = vec![0.0; self.permit_flow.len()];
         let mut implied_demand = vec![0.0; demand.commodities().len()];
@@ -90,13 +92,12 @@ impl PathBasedSolution {
             } else {
                 max_inconsistency
             };
-            assert!(
-                diff < 1e-6,
-                "Inconsistent edge flow for edge {}: implied {}, actual {}",
-                idx,
-                implied,
-                actual
-            );
+            if diff >= 1e-6 {
+                panic!(
+                    "Inconsistent edge flow for edge {}: implied {}, actual {}",
+                    idx, implied, actual
+                );
+            }
         }
 
         for (idx, (implied, actual)) in implied_permit_flow
@@ -110,13 +111,12 @@ impl PathBasedSolution {
             } else {
                 max_inconsistency
             };
-            assert!(
-                diff < 1e-6,
-                "Inconsistent permit flow for permit {}: implied {}, actual {}",
-                idx,
-                implied,
-                actual
-            );
+            if diff >= 1e-6 {
+                panic!(
+                    "Inconsistent permit flow for permit {}: implied {}, actual {}",
+                    idx, implied, actual
+                );
+            }
         }
 
         for (idx, (implied, commodity)) in
@@ -128,13 +128,12 @@ impl PathBasedSolution {
             } else {
                 max_inconsistency
             };
-            assert!(
-                diff < 1e-6,
-                "Inconsistent demand flow for commodity {}: implied {}, actual {}",
-                idx,
-                implied,
-                commodity.demand
-            );
+            if diff >= 1e-6 {
+                panic!(
+                    "Inconsistent demand flow for commodity {}: implied {}, actual {}",
+                    idx, implied, commodity.demand
+                );
+            }
         }
     }
 }
