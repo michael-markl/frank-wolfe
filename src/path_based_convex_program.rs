@@ -164,11 +164,12 @@ impl EdgeFlowAccumulator {
         bundle_index: &RwLock<BundleIndex>,
     ) {
         let mut current_bundle = Bundle::empty();
+        let mut binding = None;
         for edge_idx in path.edges() {
             self.edge_flow[edge_idx] += flow;
             let edge_bundle_idx = graph.edge_bundle(edge_idx);
             if edge_bundle_idx != BUNDLE_IDX_EMPTY {
-                let binding = bundle_index.read().unwrap();
+                let binding = binding.get_or_insert_with(|| bundle_index.read().unwrap());
                 let edge_bundle = binding.get_payload(edge_bundle_idx);
                 for permit_idx in edge_bundle.set_minus_iter(&current_bundle) {
                     self.permit_flow[*permit_idx] += flow;
