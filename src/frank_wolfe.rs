@@ -174,9 +174,8 @@ impl<Solution> FrankWolfeResult<Solution> {
     }
 
     pub fn set_obj_val(&mut self, new_obj_val: Float) {
-        self.optimality_gap = self.optimality_gap - (self.objective_value - new_obj_val);
-        self.relative_optimality_gap =
-        Self::relative_gap(self.objective_value, new_obj_val);
+        self.optimality_gap -= self.objective_value - new_obj_val;
+        self.relative_optimality_gap = Self::relative_gap(self.objective_value, new_obj_val);
         self.objective_value = new_obj_val;
     }
 }

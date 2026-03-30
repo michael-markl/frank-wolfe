@@ -124,13 +124,15 @@ pub fn read_demand(
     (demand, commodity_idx_by_id)
 }
 
+pub type PathFlow = HashMap<(CommodityIdx, PathIdx), Float>;
+
 pub fn write_solution(
     path: &std::path::PathBuf,
     edge_flow: &[Float],
     graph: &Graph,
     edge_idx_by_id: Option<&HashMap<i64, EdgeIdx>>,
     commodity_idx_by_id: Option<&HashMap<i64, CommodityIdx>>,
-    path_data: Option<(&HashMap<(CommodityIdx, PathIdx), Float>, &PathIndex)>,
+    path_data: Option<(&PathFlow, &PathIndex)>,
 ) {
     let edge_id_by_idx = edge_idx_by_id.map(|map| {
         map.iter()

@@ -46,10 +46,9 @@ impl BMWFunction {
                 // gamma^delta * [ (y + offset - gamma)^(delta+1) ]_{y=z}^{y=x}
                 let z = max(0.0, p.capacity - p.offset);
                 let overload = actual - p.capacity;
-                return x * (p.toll + p.ff_time)
+                x * (p.toll + p.ff_time)
                     + p.ff_time * p.beta / ((OP_EXP + 1) as Float * p.capacity.powi(OP_EXP))
-                        * (overload.powi(OP_EXP + 1)
-                            - (z + p.offset - p.capacity).powi(OP_EXP + 1));
+                        * (overload.powi(OP_EXP + 1) - (z + p.offset - p.capacity).powi(OP_EXP + 1))
             }
         }
     }

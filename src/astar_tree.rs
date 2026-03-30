@@ -399,7 +399,7 @@ impl<'a, B: AStarBoundOps> AStarTree<'a, B> {
             }
         }
 
-        return Float::INFINITY;
+        Float::INFINITY
     }
 }
 

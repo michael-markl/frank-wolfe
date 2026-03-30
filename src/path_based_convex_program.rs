@@ -53,10 +53,10 @@ pub fn compute_path_cost(
             for permit_idx in edge_bundle.set_minus_iter(&current_bundle) {
                 cost += costs.get_permit_cost(*permit_idx);
             }
-            current_bundle = current_bundle.into_union(&edge_bundle);
+            current_bundle = current_bundle.into_union(edge_bundle);
         }
     }
-    return cost.sum();
+    cost.sum()
 }
 
 pub fn get_paths_by_commodity<Costs: CostValuesOps + Sync, Graph: GraphOps + Sync>(
@@ -70,7 +70,7 @@ pub fn get_paths_by_commodity<Costs: CostValuesOps + Sync, Graph: GraphOps + Syn
         .par_iter()
         .map(|(&(commodity_idx, path_idx), &flow)| {
             let path = path_index.get_payload(path_idx);
-            let cost = compute_path_cost(path, costs, &bundle_index, graph);
+            let cost = compute_path_cost(path, costs, bundle_index, graph);
             (commodity_idx, (path_idx, cost, flow))
         })
         .collect();
@@ -156,7 +156,7 @@ impl EdgeFlowAccumulator {
         self.add_flows(other.edge_flow, other.permit_flow);
     }
 
-    fn add_path<'a>(
+    fn add_path(
         &mut self,
         path: &Path,
         flow: Float,
@@ -173,7 +173,7 @@ impl EdgeFlowAccumulator {
                 for permit_idx in edge_bundle.set_minus_iter(&current_bundle) {
                     self.permit_flow[*permit_idx] += flow;
                 }
-                current_bundle = current_bundle.into_union(&edge_bundle);
+                current_bundle = current_bundle.into_union(edge_bundle);
             }
         }
     }
@@ -206,8 +206,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         let permit_costs = (0..self.graph.num_permits())
             .map(|permit_idx| BMWFunction::derivative(&self.graph.permit(permit_idx).params, 0.0))
             .collect::<Vec<_>>();
-        let flow = self.compute_shortest_path_flow(&Costs(&edge_costs, &permit_costs));
-        flow
+        self.compute_shortest_path_flow(&Costs(&edge_costs, &permit_costs))
     }
 
     pub fn compute_shortest_path_flow(
@@ -275,9 +274,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
             .collect::<HashMap<_, _>>();
 
         let (edge_flow, permit_flow) = flow_acc.into_flows();
-        let sol = PathBasedSolution::from_vec(edge_flow, permit_flow, path_flow);
-
-        sol
+        PathBasedSolution::from_vec(edge_flow, permit_flow, path_flow)
     }
 
     pub fn compute_flow_altering_only_high_regret_commodities(
@@ -289,7 +286,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         let paths_by_commodity = {
             let bundle_index = self.bundle_index.read().unwrap();
             get_paths_by_commodity(
-                &x.path_flow(),
+                x.path_flow(),
                 self.path_index,
                 costs_at_x,
                 &bundle_index,
@@ -314,7 +311,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                 commodities.iter().for_each(|&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let paths = paths_by_commodity.get(&commodity_idx);
-                    if paths == None {
+                    if paths.is_none() {
                         return;
                     }
                     let paths = paths.unwrap();
@@ -471,9 +468,9 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
             };
 
             new_solution.check_consistency(
-                &self.path_index,
+                self.path_index,
                 &self.bundle_index.read().unwrap(),
-                &self.demand,
+                self.demand,
                 self.graph,
             );
 
@@ -525,8 +522,8 @@ fn partial_max(v1: f64, v2: f64) -> f64 {
 
 fn directional_derivative(
     costs: &impl CostValuesOps,
-    direction_edges: &Vec<Float>,
-    direction_permits: &Vec<Float>,
+    direction_edges: &[Float],
+    direction_permits: &[Float],
 ) -> Float {
     direction_edges
         .iter()
@@ -568,14 +565,14 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
                 )
             }
         }
-        return directional_derivative(
+        directional_derivative(
             &DynCosts {
                 graph: self.graph,
                 solution: at,
             },
             direction.edge_flow(),
             direction.permit_flow(),
-        );
+        )
     }
 
     fn compute_objective(&mut self, solution: &PathBasedSolution) -> Float {
@@ -600,13 +597,13 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
         &mut self,
         x: &PathBasedSolution,
     ) -> LinearizedSubProblemSolution<PathBasedSolution> {
-        let (edge_costs, permit_costs) = compute_bmw_gradient_from_solution(x, &self.graph);
+        let (edge_costs, permit_costs) = compute_bmw_gradient_from_solution(x, self.graph);
         let costs = Costs(&edge_costs, &permit_costs);
 
         x.check_consistency(
-            &self.path_index,
+            self.path_index,
             &self.bundle_index.read().unwrap(),
-            &self.demand,
+            self.demand,
             self.graph,
         );
 

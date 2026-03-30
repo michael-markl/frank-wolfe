@@ -372,7 +372,7 @@ fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, grap
 }
 
 fn flow_output_path_for_step(
-    flow_output_path_template: &std::path::PathBuf,
+    flow_output_path_template: &std::path::Path,
     extension: &str,
     steps: usize,
     step: usize,

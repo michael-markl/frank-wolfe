@@ -45,7 +45,7 @@ pub fn read_demand(
 ) -> (Demand, Option<HashMap<i64, CommodityIdx>>) {
     if path.extension().is_some_and(|it| it == "tntp") {
         let tntp_demand = tntp::read_trips_file(path, ext_graph)
-            .expect(&format!("Error reading trip file '{}'.", path.display()));
+            .unwrap_or_else(|_| panic!("Error reading trip file '{}'.", path.display()));
         (tntp_demand, None)
     } else if path
         .extension()
