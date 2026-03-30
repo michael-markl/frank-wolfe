@@ -158,16 +158,26 @@ pub struct FrankWolfeResult<Solution> {
 }
 
 impl<Solution> FrankWolfeResult<Solution> {
+    fn relative_gap(obj_val: Float, gap: Float) -> Float {
+        if gap == 0.0 {
+            0.0
+        } else {
+            gap / (obj_val.abs() + gap.abs())
+        }
+    }
+
     pub fn improve_gap(&mut self, new_gap: Float) {
         if new_gap < self.optimality_gap {
             self.optimality_gap = new_gap;
-            self.relative_optimality_gap = new_gap / self.objective_value;
+            self.relative_optimality_gap = Self::relative_gap(self.objective_value, new_gap);
         }
     }
 
     pub fn set_obj_val(&mut self, new_obj_val: Float) {
         self.optimality_gap = self.optimality_gap - (self.objective_value - new_obj_val);
-        self.relative_optimality_gap = self.optimality_gap / new_obj_val;
+        self.relative_optimality_gap =
+            Self::relative_gap(self.objective_value, self.optimality_gap);
+        self.objective_value = new_obj_val;
     }
 }
 
