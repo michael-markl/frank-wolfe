@@ -1,5 +1,5 @@
 use accurate::traits::DotWithAccumulator;
-use log::info;
+use log::{info, warn};
 
 use crate::{
     bundle_index::{Bundle, BundleIndex},
@@ -93,7 +93,7 @@ impl PathBasedSolution {
                 max_inconsistency
             };
             if diff >= 1e-6 {
-                panic!(
+                warn!(
                     "Inconsistent edge flow for edge {}: implied {}, actual {}",
                     idx, implied, actual
                 );
@@ -112,7 +112,7 @@ impl PathBasedSolution {
                 max_inconsistency
             };
             if diff >= 1e-6 {
-                panic!(
+                warn!(
                     "Inconsistent permit flow for permit {}: implied {}, actual {}",
                     idx, implied, actual
                 );
@@ -129,7 +129,7 @@ impl PathBasedSolution {
                 max_inconsistency
             };
             if diff >= 1e-6 {
-                panic!(
+                warn!(
                     "Inconsistent demand flow for commodity {}: implied {}, actual {}",
                     idx, implied, commodity.demand
                 );

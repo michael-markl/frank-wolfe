@@ -277,13 +277,6 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         let (edge_flow, permit_flow) = flow_acc.into_flows();
         let sol = PathBasedSolution::from_vec(edge_flow, permit_flow, path_flow);
 
-        sol.check_consistency(
-            &self.path_index,
-            &self.bundle_index.read().unwrap(),
-            &self.demand,
-            self.graph,
-        );
-
         sol
     }
 

@@ -42,10 +42,10 @@ impl<'g, 'd, 't, 'b, 'bi> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi> {
 
     pub fn compute_shortest_path_flow(
         &self,
-        edge_costs: &Vec<Float>,
-        permit_costs: &Vec<Float>,
+        edge_costs: &[Float],
+        permit_costs: &[Float],
     ) -> EdgeBasedSolution {
-        struct Costs<'a>(&'a Vec<Float>, &'a Vec<Float>);
+        struct Costs<'a>(&'a [Float], &'a [Float]);
 
         impl CostValuesOps for Costs<'_> {
             fn get_edge_cost(&self, edge_idx: EdgeIdx) -> Float {
@@ -74,7 +74,11 @@ impl<'g, 'd, 't, 'b, 'bi> EdgeBasedConvexProgramInstance<'g, 'd, 't, 'b, 'bi> {
                 commodity_indices.iter().for_each(move |&commodity_idx| {
                     let commodity = self.demand.get_commodity(commodity_idx);
                     let destination_idx = commodity.destination_idx;
-                    let ShortestPathResult { distance: _cost, path, bundle_idx } = tree
+                    let ShortestPathResult {
+                        distance: _cost,
+                        path,
+                        bundle_idx,
+                    } = tree
                         .compute_shortest_path(
                             self.graph,
                             self.demand,
