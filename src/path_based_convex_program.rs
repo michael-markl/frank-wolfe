@@ -282,7 +282,8 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         &mut self,
         x: &PathBasedSolution,
         costs_at_x: &(impl CostValuesOps + Sync),
-    ) -> (PathBasedSolution, Float, EdgeBasedSolution) {
+        max_relative_regret_fraction: Float,
+    ) -> (PathBasedSolution, Float, Float, Float, EdgeBasedSolution) {
         let paths_by_commodity = {
             let bundle_index = self.bundle_index.read().unwrap();
             get_paths_by_commodity(
@@ -325,27 +326,33 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
             paths.into_iter().flatten().collect::<HashMap<_, _>>()
         };
 
-        let max_relative_regret = paths_by_commodity
+        let (max_relative_regret, weighted_relative_regret_sum, total_flow) = paths_by_commodity
             .iter()
-            .flat_map(|(&commodity_idx, paths)| {
+            .fold((0.0, 0.0, 0.0), |acc, (&commodity_idx, paths)| {
+                let (mut max_regret, mut weighted_sum, mut flow_sum) = acc;
                 let distance = shortest_paths
                     .get(&commodity_idx)
                     .map(|(distance, _, _)| *distance)
                     .expect("Shortest distance missing for commodity.");
-                paths
-                    .iter()
-                    .filter(|(_, _, flow)| *flow > 0.0)
-                    .map(move |(_, cost, _)| {
-                        if distance > 0.0 {
-                            *cost / distance - 1.0
-                        } else {
-                            0.0
-                        }
-                    })
+                for (_, cost, flow) in paths.iter().filter(|(_, _, flow)| *flow > 0.0) {
+                    let relative_regret = if distance > 0.0 {
+                        *cost / distance - 1.0
+                    } else {
+                        0.0
+                    };
+                    max_regret = partial_max(max_regret, relative_regret);
+                    weighted_sum += relative_regret * *flow;
+                    flow_sum += *flow;
+                }
+                (max_regret, weighted_sum, flow_sum)
             })
-            .max_by(|a, b| a.total_cmp(b))
-            .unwrap_or(0.0);
-        let high_regret_threshold = 0.5 * max_relative_regret;
+            ;
+        let mean_regret = if total_flow > 0.0 {
+            weighted_relative_regret_sum / total_flow
+        } else {
+            0.0
+        };
+        let high_regret_threshold = max_relative_regret_fraction * max_relative_regret;
 
         let init_flows = || {
             (
@@ -380,7 +387,7 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                     );
 
                     // For the reduced flow, keep paths whose relative regret is at most
-                    // 90% of the global maximum relative regret.
+                    // max_relative_regret_fraction of the global maximum relative regret.
                     {
                         // Update approximation
                         let distance_reciprocal = if distance > 0.0 { 1.0 / distance } else { 0.0 };
@@ -469,13 +476,32 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
         let (edge_flow, permit_flow) = shortest_flow.into_flows();
         let shortest_flow = EdgeBasedSolution::from_vec(edge_flow, permit_flow);
 
-        (new_solution, approximation, shortest_flow)
+        (
+            new_solution,
+            approximation,
+            max_relative_regret,
+            mean_regret,
+            shortest_flow,
+        )
     }
 
     pub fn remove_high_regret_paths(
         &mut self,
-        mut result: FrankWolfeResult<PathBasedSolution>,
+        result: FrankWolfeResult<PathBasedSolution>,
     ) -> FrankWolfeResult<PathBasedSolution> {
+        self.remove_high_regret_paths_with_on_step(result, 0.5, |_, _, _, _, _, _| {})
+    }
+
+    pub fn remove_high_regret_paths_with_on_step(
+        &mut self,
+        mut result: FrankWolfeResult<PathBasedSolution>,
+        max_relative_regret_fraction: Float,
+        mut on_step: impl FnMut(usize, Float, Float, Float, Float, &FrankWolfeResult<PathBasedSolution>),
+    ) -> FrankWolfeResult<PathBasedSolution> {
+        assert!(
+            (0.0..=1.0).contains(&max_relative_regret_fraction),
+            "max_relative_regret_fraction must be in [0, 1]"
+        );
         let desired_approximation: f64 = 1.0 + 2.0f64.powi(-10);
         let max_iterations = 300;
         let mut iteration = 0;
@@ -493,8 +519,12 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                 compute_bmw_gradient_from_solution(&result.solution, self.graph);
             let costs = Costs(&edge_costs, &permit_costs);
 
-            let (new_solution, approximation, shortest_flow) =
-                self.compute_flow_altering_only_high_regret_commodities(&result.solution, &costs);
+            let (new_solution, approximation, max_regret, mean_regret, shortest_flow) =
+                self.compute_flow_altering_only_high_regret_commodities(
+                    &result.solution,
+                    &costs,
+                    max_relative_regret_fraction,
+                );
 
             {
                 // Compute new gap
@@ -531,12 +561,25 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
 
             let direction =
                 PathBasedSolution::from_linear_combination(&new_solution, -1.0, &result.solution);
-            let (new_result, _step_size) = frank_wolfe_step(result, self, new_solution, &direction);
+            let (new_result, step_size) = frank_wolfe_step(result, self, new_solution, &direction);
             result = new_result;
+            on_step(
+                iteration,
+                step_size,
+                max_regret,
+                approximation,
+                mean_regret,
+                &result,
+            );
             debug!(
                 "After FW-step: objective value: {:.6e}, optimality gap: {:.6e}, relative gap: {:.6e}",
                 result.objective_value, result.optimality_gap, result.relative_optimality_gap
             );
+
+            if step_size == 0.0 {
+                info!("Step size is 0.0 during high regret path removal. Stopping.");
+                return result;
+            }
 
             if approximation < desired_approximation {
                 info!(

@@ -16,7 +16,7 @@ use crate::{
     demand::{Demand, DemandOps},
     edge_based_convex_program::EdgeBasedConvexProgramInstance,
     edge_based_solution::EdgeBasedSolution,
-    frank_wolfe::{FrankWolfeResult, solve_convex_program},
+    frank_wolfe::{ConvexProgramInstance, FrankWolfeResult, solve_convex_program},
     graph::{EdgeParams, Graph, LpfMode},
     graph_ops::GraphOps,
     io::{self},
@@ -590,7 +590,9 @@ pub fn compute_solutions_for_price_range_with_paths(
                 instance.compute_initial_solution()
             };
 
-            let result = solve_convex_program(
+            /*
+                TODO: Check if we can consolidate the two code paths.
+                let result = solve_convex_program(
                 initial_solution,
                 &mut instance,
                 rel_gap,
@@ -598,6 +600,15 @@ pub fn compute_solutions_for_price_range_with_paths(
                 |_, _| {},
             );
             let result = instance.remove_high_regret_paths(result);
+            */
+            let obj_val = instance.compute_objective(&initial_solution);
+            let result = instance.remove_high_regret_paths(FrankWolfeResult {
+                objective_value: obj_val,
+                solution: initial_solution,
+                num_iterations: 0,
+                optimality_gap: Float::INFINITY,
+                relative_optimality_gap: Float::INFINITY,
+            });
 
             if cfg!(debug_assertions) {
                 result.solution.check_consistency(

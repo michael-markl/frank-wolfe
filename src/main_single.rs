@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
 use log::info;
+use serde::Serialize;
 
 use crate::{
     astar::AStarTable,
@@ -10,7 +11,7 @@ use crate::{
     bundle_index::BundleIndex,
     common::{Float, MyDotAccumulator},
     demand::DemandOps,
-    frank_wolfe::solve_convex_program,
+    frank_wolfe::{ConvexProgramInstance, FrankWolfeResult},
     graph_ops::GraphOps,
     io::{self, csv::write_edge_flow_csv, sqlite::write_solution},
     path_based_convex_program::PathBasedConvexProgramInstance,
@@ -51,8 +52,44 @@ pub struct SingleArgs {
     #[arg(long = "out_flow_sqlite")]
     out_flow_sqlite: Option<std::path::PathBuf>,
 
+    #[arg(
+        long = "out_metrics_csv",
+        help = "Output CSV path for high-regret removal iteration metrics (step_size, obj_val, relative_gap, max_regret, mean_regret)."
+    )]
+    out_metrics_csv: Option<std::path::PathBuf>,
+
+    #[arg(
+        long = "max_relative_regret_fraction",
+        default_value_t = 0.5,
+        help = "Keep paths whose relative regret is at most this fraction of the current maximum relative regret during path cleanup (must be in [0, 1])."
+    )]
+    max_relative_regret_fraction: Float,
+
     #[arg(long = "with_paths")]
     with_paths: bool,
+}
+
+#[derive(Serialize)]
+struct SingleMetricsCsvEntry {
+    iteration: usize,
+    step_size: Float,
+    obj_val: Float,
+    relative_gap: Float,
+    max_regret: Float,
+    mean_regret: Float,
+}
+
+fn write_single_metrics_csv(entries: &[SingleMetricsCsvEntry], output_path: &std::path::PathBuf) {
+    let mut writer =
+        csv::Writer::from_path(output_path).expect("Failed to create single metrics CSV writer");
+    for entry in entries {
+        writer
+            .serialize(entry)
+            .expect("Failed to serialize single metrics CSV entry");
+    }
+    writer
+        .flush()
+        .expect("Failed to flush single metrics CSV writer");
 }
 
 pub fn main_single(args: SingleArgs) {
@@ -90,15 +127,40 @@ pub fn main_single(args: SingleArgs) {
         path_index: &mut path_index,
     };
 
-    let result = solve_convex_program(
-        instance.compute_initial_solution(),
-        &mut instance,
-        args.rel_gap,
-        args.max_iter,
-        |_, _| {},
-    );
+    // TODO: Check if we can consolidate the two code paths.
+    // let result = solve_convex_program(
+    //     instance.compute_initial_solution(),
+    //     &mut instance,
+    //     args.rel_gap,
+    //     args.max_iter,
+    //     |_, _| {},
+    // );
 
-    let result = instance.remove_high_regret_paths(result);
+    let initial_solution = instance.compute_initial_solution();
+    let obj_val = instance.compute_objective(&initial_solution);
+    let result = FrankWolfeResult {
+        objective_value: obj_val,
+        solution: initial_solution,
+        num_iterations: 0,
+        optimality_gap: Float::INFINITY,
+        relative_optimality_gap: Float::INFINITY,
+    };
+
+    let mut metrics_entries = vec![];
+    let result = instance.remove_high_regret_paths_with_on_step(
+        result,
+        args.max_relative_regret_fraction,
+        |iteration, step_size, max_regret, _approximation, mean_regret, result| {
+            metrics_entries.push(SingleMetricsCsvEntry {
+                iteration,
+                step_size,
+                obj_val: result.objective_value,
+                relative_gap: result.relative_optimality_gap,
+                max_regret,
+                mean_regret,
+            });
+        },
+    );
 
     if cfg!(debug_assertions) {
         result.solution.check_consistency(
@@ -145,5 +207,9 @@ pub fn main_single(args: SingleArgs) {
             commodity_idx_by_id.as_ref(),
             Some((result.solution.path_flow(), &path_index)),
         );
+    }
+
+    if let Some(out_metrics_csv) = &args.out_metrics_csv {
+        write_single_metrics_csv(&metrics_entries, out_metrics_csv);
     }
 }
