@@ -1,0 +1,19 @@
+[package]
+name = "frank-wolfe-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "frank-wolfe"
+path = "src/main.rs"
+
+[dependencies]
+frank-wolfe = { path = "../frank-wolfe" }
+accurate = "0.4.1"
+clap = { version = "4.5.55", features = ["derive"] }
+clap_derive = "4.5.55"
+csv = "1.4.0"
+env_logger = "0.11.8"
+log = "0.4.29"
+rayon = "1.11.0"
+serde = { version = "1.0.228", features = ["derive"] }
