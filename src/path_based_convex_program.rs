@@ -546,12 +546,14 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> PathBasedConvexProgramInstance<'g, 'd, 't, '
                 result.improve_gap(-inner_product);
             };
 
-            new_solution.check_consistency(
-                self.path_index,
-                &self.bundle_index.read().unwrap(),
-                self.demand,
-                self.graph,
-            );
+            if cfg!(debug_assertions) {
+                new_solution.check_consistency(
+                    self.path_index,
+                    &self.bundle_index.read().unwrap(),
+                    self.demand,
+                    self.graph,
+                );
+            }
 
             let num_paths = new_solution.path_flow().len();
             debug!(
@@ -676,12 +678,14 @@ impl<'g, 'd, 't, 'b, 'bi, 'idx, 'p> ConvexProgramInstance<PathBasedSolution>
         let (edge_costs, permit_costs) = compute_bmw_gradient_from_solution(x, self.graph);
         let costs = Costs(&edge_costs, &permit_costs);
 
-        x.check_consistency(
-            self.path_index,
-            &self.bundle_index.read().unwrap(),
-            self.demand,
-            self.graph,
-        );
+        if cfg!(debug_assertions) {       
+            x.check_consistency(
+                self.path_index,
+                &self.bundle_index.read().unwrap(),
+                self.demand,
+                self.graph,
+            );
+        }
 
         let y = self.compute_shortest_path_flow(&costs);
         let diff = PathBasedSolution::from_linear_combination(&y, -1.0, x);
