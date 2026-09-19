@@ -4,6 +4,7 @@ use accurate::traits::{DotWithAccumulator, ParallelSumWithAccumulator, SumWithAc
 use clap_derive::Parser;
 use log::{info, trace};
 use rayon::iter::ParallelIterator;
+use serde::{Deserialize, Serialize};
 
 use frank_wolfe::{
     collections::{HashMap, map_new},
@@ -23,7 +24,24 @@ use frank_wolfe::{
     optimization::path_based_convex_program::PathBasedConvexProgramInstance,
     optimization::path_based_solution::PathBasedSolution,
     routing::astar::AStarTable,
+    routing::reachability::reachable_nodes,
 };
+
+#[derive(Debug, Serialize)]
+struct CarbonPricingCsvEntry {
+    iteration: usize,
+    price: Float,
+    total_travel_time: Float,
+    total_user_cost: Float,
+    total_consumption: Float,
+    total_consumption_inside: Option<Float>,
+    total_entrances: Option<Float>,
+    total_permit_flow: Option<Float>,
+    num_iterations: usize,
+    objective_value: Float,
+    gap: Float,
+    relative_gap: Float,
+}
 
 #[derive(Parser, Debug)]
 pub struct CarbonPricingArgs {
@@ -154,7 +172,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     mode: LpfMode::C,
                     ff_time: 0.0,
                     beta: 0.0,
-                    capacity: 999999.0,
+                    capacity: f64::INFINITY,
                     length: 0.0,
                     toll: 0.0,
                     offset: 0.0,
@@ -169,54 +187,6 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     if cordon_edge.inside {
                         edge.bundle = bundle_idx;
                     }
-                }
-
-                pub fn minimum_demand_using_permit(
-                    graph: &Graph,
-                    demand: &Demand,
-                    bundle_index: &RwLock<BundleIndex>,
-                    permit_idx: usize,
-                ) -> Float {
-                    demand
-                        .par_iter_by_origin()
-                        .map(|(&origin, commodities)| {
-                            // Find all nodes reachable from origin using only edges that lie outside the cordon
-                            let reachable = {
-                                let mut visited = map_new();
-                                let mut stack = vec![origin];
-                                while let Some(node_idx) = stack.pop() {
-                                    if visited.contains_key(&node_idx) {
-                                        continue;
-                                    }
-                                    visited.insert(node_idx, true);
-                                    for edge_idx in graph.outgoing_edges(node_idx) {
-                                        let edge = graph.edge(edge_idx);
-                                        let is_cordon_edge = bundle_index
-                                            .read()
-                                            .unwrap()
-                                            .get_payload(edge.bundle)
-                                            .permits()
-                                            .any(|p_idx| p_idx == permit_idx);
-                                        if !is_cordon_edge {
-                                            stack.push(edge.head);
-                                        }
-                                    }
-                                }
-                                visited
-                            };
-
-                            commodities
-                                .iter()
-                                .filter(|&&commodity_idx| {
-                                    let commodity = demand.get_commodity(commodity_idx);
-                                    let dest_node_idx =
-                                        demand.node_idx_by_destination(commodity.destination_idx);
-                                    !reachable.contains_key(&dest_node_idx)
-                                })
-                                .map(|&commodity_idx| demand.get_commodity(commodity_idx).demand)
-                                .sum_with_accumulator::<MySumAccumulator>()
-                        })
-                        .parallel_sum_with_accumulator::<MySumAccumulator>()
                 }
 
                 info!(
@@ -247,24 +217,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 csv_output_path.display()
             );
         }
-        let mut wtr = csv::Writer::from_path(csv_output_path).unwrap();
-        wtr.write_record([
-            "iteration",
-            "price",
-            "total_travel_time",
-            "total_user_cost",
-            "total_consumption",
-            "total_consumption_inside",
-            "total_entrances",
-            "total_permit_flow",
-            "num_iterations",
-            "objective_value",
-            "gap",
-            "relative_gap",
-        ])
-        .unwrap();
-        wtr.flush().unwrap();
-        Some(wtr)
+
+        Some(csv::Writer::from_path(csv_output_path).unwrap())
     } else {
         None
     };
@@ -336,18 +290,19 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct EdgeFlowCsvEntry {
+    edge_id: EdgeIdx,
+    flow: Float,
+    #[serde(rename = "adjusted-length")]
+    adjusted_length: Float,
+    capacity: Float,
+    utilization: Float,
+    travel_time_per_unit: Float,
+}
+
 fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, graph: &Graph) {
     let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
-
-    wtr.write_record([
-        "edge_id",
-        "flow",
-        "adjusted-length",
-        "capacity",
-        "utilization",
-        "travel_time_per_unit",
-    ])
-    .expect("Failed to write header");
 
     for edge_idx in 0..graph.num_edges() {
         let edge = graph.edge(edge_idx);
@@ -357,18 +312,51 @@ fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, grap
         let utilization = flow / capacity;
         let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
 
-        wtr.write_record(&[
-            edge_idx.to_string(),
-            flow.to_string(),
-            length.to_string(),
-            capacity.to_string(),
-            utilization.to_string(),
-            travel_time_per_unit.to_string(),
-        ])
+        wtr.serialize(EdgeFlowCsvEntry {
+            edge_id: edge_idx,
+            flow,
+            adjusted_length: length,
+            capacity,
+            utilization,
+            travel_time_per_unit,
+        })
         .expect("Failed to write flow record");
     }
 
     wtr.flush().expect("Failed to flush CSV writer");
+}
+
+/// Computes the demand that has to purchase a given permit.
+pub fn minimum_demand_using_permit(
+    graph: &Graph,
+    demand: &Demand,
+    bundle_index: &RwLock<BundleIndex>,
+    permit_idx: usize,
+) -> Float {
+    demand
+        .par_iter_by_origin()
+        .map(|(&origin, commodities)| {
+            // Find all nodes reachable without purchasing this permit.
+            let reachable = reachable_nodes(graph, origin, |edge_idx| {
+                !bundle_index
+                    .read()
+                    .unwrap()
+                    .get_payload(graph.edge(edge_idx).bundle)
+                    .permits()
+                    .any(|p_idx| p_idx == permit_idx)
+            });
+
+            commodities
+                .iter()
+                .filter(|&&commodity_idx| {
+                    let commodity = demand.get_commodity(commodity_idx);
+                    let dest_node_idx = demand.node_idx_by_destination(commodity.destination_idx);
+                    !reachable.contains(&dest_node_idx)
+                })
+                .map(|&commodity_idx| demand.get_commodity(commodity_idx).demand)
+                .sum_with_accumulator::<MySumAccumulator>()
+        })
+        .parallel_sum_with_accumulator::<MySumAccumulator>()
 }
 
 fn flow_output_path_for_step(
@@ -492,20 +480,20 @@ fn handle_step_output<Solution>(
     );
 
     csv_writer.iter_mut().for_each(|wtr| {
-        wtr.write_record(&[
-            step.to_string(),
-            price.to_string(),
-            total_travel_time.to_string(),
-            total_user_cost.to_string(),
-            total_consumption.to_string(),
-            consumption_inside.map_or("".to_string(), |v| v.to_string()),
-            total_entrances.map_or("".to_string(), |v| v.to_string()),
-            total_permit_flow.map_or("".to_string(), |v| v.to_string()),
-            result.num_iterations.to_string(),
-            result.objective_value.to_string(),
-            result.optimality_gap.to_string(),
-            result.relative_optimality_gap.to_string(),
-        ])
+        wtr.serialize(CarbonPricingCsvEntry {
+            iteration: step,
+            price,
+            total_travel_time,
+            total_user_cost,
+            total_consumption,
+            total_consumption_inside: consumption_inside,
+            total_entrances,
+            total_permit_flow,
+            num_iterations: result.num_iterations,
+            objective_value: result.objective_value,
+            gap: result.optimality_gap,
+            relative_gap: result.relative_optimality_gap,
+        })
         .unwrap();
         wtr.flush().unwrap();
     });
@@ -684,6 +672,13 @@ struct CordonPricingMap {
     map: HashMap<EdgeIdx, CordonEdge>,
 }
 
+#[derive(Deserialize)]
+struct CordonEdgeCsvEntry {
+    edge_id: EdgeIdx,
+    leads_inside: usize,
+    lies_inside: usize,
+}
+
 impl CordonPricingMap {
     pub fn for_edge(&self, edge_idx: EdgeIdx) -> CordonEdge {
         *self.map.get(&edge_idx).unwrap_or(&CordonEdge {
@@ -694,21 +689,14 @@ impl CordonPricingMap {
 
     pub fn from_csv(path: std::path::PathBuf) -> Self {
         let mut map = map_new();
-        let mut rdr = csv::Reader::from_path(path).unwrap();
-        let headers = rdr.headers().unwrap();
-        let edge_id_col = headers.iter().position(|h| h == "edge_id").unwrap();
-        let leads_inside_col = headers.iter().position(|h| h == "leads_inside").unwrap();
-        let lies_inside_col = headers.iter().position(|h| h == "lies_inside").unwrap();
-        for result in rdr.records() {
-            let record = result.unwrap();
-            let edge_idx: EdgeIdx = record[edge_id_col].parse().unwrap();
-            let inside: bool = record[lies_inside_col].parse::<usize>().unwrap() > 0;
-            let leads_inside: bool = record[leads_inside_col].parse::<usize>().unwrap() > 0;
+        let mut rdr = csv::Reader::from_path(&path).unwrap();
+        for result in rdr.deserialize::<CordonEdgeCsvEntry>() {
+            let record = result.expect(&format!("Could not parse cordon map from {}", path.display()));
             map.insert(
-                edge_idx,
+                record.edge_id,
                 CordonEdge {
-                    inside,
-                    leads_inside,
+                    inside: record.lies_inside > 0,
+                    leads_inside: record.leads_inside > 0,
                 },
             );
         }

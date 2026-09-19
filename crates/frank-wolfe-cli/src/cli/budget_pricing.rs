@@ -3,22 +3,24 @@ use std::{io::Write, sync::RwLock};
 use accurate::traits::DotWithAccumulator;
 use clap_derive::Parser;
 use log::{error, info, trace};
+use serde::Serialize;
 
 use frank_wolfe::{
-    common::{Float, MyDotAccumulator},
-    io::{self},
-    network::bundle_index::BundleIndex,
-    network::demand::{Demand, DemandOps},
-    network::graph::Graph,
-    network::graph_ops::GraphOps,
-    network::path_index::PathIndex,
-    optimization::bmw_function::BMWFunction,
-    optimization::edge_based_solution::EdgeBasedSolution,
-    optimization::frank_wolfe::{FrankWolfeResult, solve_convex_program},
-    optimization::path_based_convex_program::PathBasedConvexProgramInstance,
-    optimization::path_based_solution::PathBasedSolution,
-    routing::astar::AStarTable,
+    common::{EdgeIdx, Float, MyDotAccumulator}, io::{self}, network::{bundle_index::BundleIndex, demand::{Demand, DemandOps}, graph::Graph, graph_ops::GraphOps, path_index::PathIndex}, optimization::{bmw_function::BMWFunction, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution}, routing::astar::AStarTable,
 };
+
+#[derive(Debug, Serialize)]
+struct BudgetPricingCsvEntry {
+    iteration: usize,
+    price: Float,
+    total_travel_time: Float,
+    total_user_cost: Float,
+    total_consumption: Float,
+    num_iterations: usize,
+    objective_value: Float,
+    gap: Float,
+    relative_gap: Float,
+}
 
 #[derive(Parser, Debug)]
 pub struct BudgetPricingArgs {
@@ -116,21 +118,7 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
                 csv_output_path.display()
             );
         }
-        let mut wtr = csv::Writer::from_path(csv_output_path).unwrap();
-        wtr.write_record([
-            "iteration",
-            "price",
-            "total_travel_time",
-            "total_user_cost",
-            "total_consumption",
-            "num_iterations",
-            "objective_value",
-            "gap",
-            "relative_gap",
-        ])
-        .unwrap();
-        wtr.flush().unwrap();
-        Some(wtr)
+        Some(csv::Writer::from_path(csv_output_path).unwrap())
     } else {
         None
     };
@@ -210,17 +198,17 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
             );
 
             csv_writer.iter_mut().for_each(|wtr| {
-                wtr.write_record(&[
-                    step.to_string(),
-                    price.to_string(),
-                    total_travel_time.to_string(),
-                    total_user_cost.to_string(),
-                    total_consumption.to_string(),
-                    result.num_iterations.to_string(),
-                    result.objective_value.to_string(),
-                    result.optimality_gap.to_string(),
-                    result.relative_optimality_gap.to_string(),
-                ])
+                wtr.serialize(BudgetPricingCsvEntry {
+                    iteration: step,
+                    price,
+                    total_travel_time,
+                    total_user_cost,
+                    total_consumption,
+                    num_iterations: result.num_iterations,
+                    objective_value: result.objective_value,
+                    gap: result.optimality_gap,
+                    relative_gap: result.relative_optimality_gap,
+                })
                 .unwrap();
                 wtr.flush().unwrap();
             });
@@ -245,36 +233,32 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct EdgeFlowCsvEntry {
+    edge_id: EdgeIdx,
+    flow: Float,
+    #[serde(rename = "adjusted-length")]
+    adjusted_length: Float,
+    capacity: Float,
+    utilization: Float,
+    travel_time_per_unit: Float,
+}
+
 fn write_flow_csv(solution: &EdgeBasedSolution, flow_csv_path: &std::path::PathBuf, graph: &Graph) {
     let mut wtr = csv::Writer::from_path(flow_csv_path).expect("Failed to create flow CSV writer");
-
-    wtr.write_record([
-        "edge_id",
-        "flow",
-        "adjusted-length",
-        "capacity",
-        "utilization",
-        "travel_time_per_unit",
-    ])
-    .expect("Failed to write header");
 
     let edge_flows = solution.edge_flow();
     for edge_idx in 0..graph.num_edges() {
         let edge = graph.edge(edge_idx);
         let flow = edge_flows[edge_idx];
-        let length = edge.params.length;
-        let capacity = edge.params.capacity;
-        let utilization = flow / capacity;
-        let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
-
-        wtr.write_record(&[
-            edge_idx.to_string(),
-            flow.to_string(),
-            length.to_string(),
-            capacity.to_string(),
-            utilization.to_string(),
-            travel_time_per_unit.to_string(),
-        ])
+        wtr.serialize(EdgeFlowCsvEntry {
+            edge_id: edge_idx,
+            flow,
+            adjusted_length: edge.params.length,
+            capacity: edge.params.capacity,
+            utilization: flow / edge.params.capacity,
+            travel_time_per_unit: BMWFunction::derivative(&edge.params, flow),
+        })
         .expect("Failed to write flow record");
     }
 
@@ -306,8 +290,8 @@ pub fn exp_search_for_budget<'a>(
     let mut step = 0;
 
     let mut price_lower_bound = 0.0;
-    let mut price_upper_bound = None;
-    let mut solution_upper_bound = None;
+    let price_upper_bound: f64;
+    let solution_upper_bound: PathBasedSolution;
 
     loop {
         let price = if step == 0 {
@@ -353,8 +337,8 @@ pub fn exp_search_for_budget<'a>(
         on_step(step, price, &result, graph);
 
         if total_consumption <= budget {
-            price_upper_bound = Some(price);
-            solution_upper_bound = Some(result.solution.clone());
+            price_upper_bound = price;
+            solution_upper_bound = result.solution.clone();
             solution = Some(result.solution);
             break;
         }
@@ -372,8 +356,8 @@ pub fn exp_search_for_budget<'a>(
         step += 1;
     }
 
-    let mut price_upper_bound = price_upper_bound.unwrap();
-    let mut solution_upper_bound = solution_upper_bound.unwrap();
+    let mut price_upper_bound = price_upper_bound;
+    let mut solution_upper_bound = solution_upper_bound;
 
     if price_lower_bound == price_upper_bound {
         assert!(price_lower_bound == 0.0);
