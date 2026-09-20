@@ -6,7 +6,23 @@ use log::{error, info, trace};
 use serde::Serialize;
 
 use frank_wolfe::{
-    common::{EdgeIdx, Float, MyDotAccumulator}, io::{self}, network::{bundle_index::BundleIndex, demand::{Demand, DemandOps}, graph::Graph, graph_ops::GraphOps, path_index::PathIndex}, optimization::{bmw_function::BMWFunction, edge_based_solution::EdgeBasedSolution, frank_wolfe::{FrankWolfeResult, solve_convex_program}, path_based_convex_program::PathBasedConvexProgramInstance, path_based_solution::PathBasedSolution}, routing::astar::AStarTable,
+    common::{EdgeIdx, Float, MyDotAccumulator},
+    io::{self},
+    network::{
+        bundle_index::BundleIndex,
+        demand::{Demand, DemandOps},
+        graph::Graph,
+        graph_ops::GraphOps,
+        path_index::PathIndex,
+    },
+    optimization::{
+        bmw_function::BMWFunction,
+        edge_based_solution::EdgeBasedSolution,
+        frank_wolfe::{FrankWolfeResult, solve_convex_program},
+        path_based_convex_program::PathBasedConvexProgramInstance,
+        path_based_solution::PathBasedSolution,
+    },
+    routing::astar::AStarTable,
 };
 
 #[derive(Debug, Serialize)]
@@ -92,6 +108,10 @@ pub fn main_budget_pricing(args: BudgetPricingArgs) {
     let (demand, commodity_idx_by_id) = io::read_demand(&args.demand, &ext_graph);
 
     let mut graph = ext_graph.graph;
+    assert!(
+        (0..graph.num_edges()).all(|i| graph.edge(i).params.externality_linear == 0.0),
+        "budget-pricing requires constant externalities: flow-dependent emissions need not be monotone in price; use carbon-pricing instead"
+    );
 
     if let Some(min_per_time_unit) = args.min_per_time_unit {
         for edge_idx in 0..graph.num_edges() {

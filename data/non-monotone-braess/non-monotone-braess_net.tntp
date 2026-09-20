@@ -1,0 +1,13 @@
+<NUMBER OF ZONES> 4
+<NUMBER OF NODES> 4
+<FIRST THRU NODE> 1
+<NUMBER OF LINKS> 5
+<EXTERNALITY MODEL> length + externality_linear * flow
+<END OF METADATA>
+
+~	init_node	term_node	capacity	length	free_flow_time	b	power	speed	toll	link_type	externality_linear	;
+	1	2	inf	0	0	0	4	0	0	1	1	;
+	1	3	inf	2.5	0	0	4	0	0	1	0	;
+	2	3	inf	0	0.25	0	4	0	0	1	0	;
+	2	4	inf	2.5	0	0	4	0	0	1	0	;
+	3	4	inf	0	0	0	4	0	0	1	1	;

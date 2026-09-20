@@ -14,11 +14,19 @@ pub enum LpfMode {
 pub struct EdgeParams {
     pub mode: LpfMode,
     pub toll: Float,
+    pub toll_linear: Float,
     pub offset: Float,
     pub ff_time: Float,
     pub beta: Float,
     pub capacity: Float,
     pub length: Float,
+    pub externality_linear: Float,
+}
+
+impl EdgeParams {
+    pub fn externality(&self, flow: Float) -> Float {
+        self.length + self.externality_linear * flow
+    }
 }
 
 pub struct Edge {

@@ -111,6 +111,7 @@ pub fn main_single(args: SingleArgs) {
         for edge_idx in 0..graph.num_edges() {
             let edge = graph.edge_mut(edge_idx);
             edge.params.length *= km_per_distance_unit;
+            edge.params.externality_linear *= km_per_distance_unit;
         }
     }
 

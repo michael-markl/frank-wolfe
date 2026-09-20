@@ -104,6 +104,10 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
     })
     .collect::<Result<HashMap<_, _>, String>>()?;
 
+    let externality_linear_column = header_names
+        .iter()
+        .position(|it| it == "externality_linear");
+
     let mut node_idx_by_id = map_new();
     let mut graph = Graph::empty();
 
@@ -114,6 +118,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
         length: Float,
         free_flow_time: Float,
         b: Float,
+        externality_linear: Float,
     }
 
     let mut raw_edges = vec![];
@@ -154,6 +159,21 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
             .parse::<Float>()
             .map_err(|err| format!("Line {:}: Invalid b value: {}", line_idx, err))?;
 
+        let externality_linear = match externality_linear_column {
+            None => 0.0,
+            Some(column) => data
+                .get(column)
+                .ok_or_else(|| format!("Line {}: Missing 'externality_linear' column", line_idx))?
+                .parse::<Float>()
+                .map_err(|err| format!("Line {}: Invalid externality_linear: {}", line_idx, err))?,
+        };
+        if !externality_linear.is_finite() || externality_linear < 0.0 {
+            return Err(format!(
+                "Line {}: externality_linear must be finite and nonnegative",
+                line_idx
+            ));
+        }
+
         raw_edges.push(RawEdge {
             tail_node,
             head_node,
@@ -161,6 +181,7 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
             length,
             free_flow_time,
             b,
+            externality_linear,
         });
     }
 
@@ -190,6 +211,8 @@ pub fn read_net_file(path: &Path) -> Result<TNTPNet, String> {
                     capacity: edge.capacity,
                     length: edge.length,
                     toll: 0.0,
+                    toll_linear: 0.0,
+                    externality_linear: edge.externality_linear,
                     offset: 0.0,
                     ff_time: edge.free_flow_time,
                     beta: edge.b,

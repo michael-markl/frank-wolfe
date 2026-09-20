@@ -118,6 +118,7 @@ impl TollsStrategy for Box<dyn TollsStrategy> {
 }
 
 pub fn main_carbon_pricing(args: CarbonPricingArgs) {
+    assert!(args.min_price >= 0.0, "Prices must be nonnegative");
     assert!(args.min_price <= args.max_price);
     assert!(args.steps > 0);
     assert!(
@@ -141,6 +142,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
         for edge_idx in 0..graph.num_edges() {
             let edge = graph.edge_mut(edge_idx);
             edge.params.length *= km_per_distance_unit;
+            edge.params.externality_linear *= km_per_distance_unit;
         }
     }
 
@@ -175,6 +177,8 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                     capacity: f64::INFINITY,
                     length: 0.0,
                     toll: 0.0,
+                    toll_linear: 0.0,
+                    externality_linear: 0.0,
                     offset: 0.0,
                 });
                 let bundle_idx = bundle_index
@@ -310,7 +314,7 @@ fn write_flow_csv(edge_flows: &[Float], flow_csv_path: &std::path::PathBuf, grap
         let length = edge.params.length;
         let capacity = edge.params.capacity;
         let utilization = flow / capacity;
-        let travel_time_per_unit = BMWFunction::derivative(&edge.params, flow);
+        let travel_time_per_unit = BMWFunction::travel_time(&edge.params, flow);
 
         wtr.serialize(EdgeFlowCsvEntry {
             edge_id: edge_idx,
@@ -412,7 +416,7 @@ fn handle_step_output<Solution>(
         .enumerate()
         .map(|(edge_idx, it)| {
             let p = &graph.edge(edge_idx).params;
-            ((BMWFunction::derivative(p, it) - p.toll), it)
+            (BMWFunction::travel_time(p, it), it)
         })
         .dot_with_accumulator::<MyDotAccumulator>();
 
@@ -444,7 +448,7 @@ fn handle_step_output<Solution>(
         .iter()
         .copied()
         .enumerate()
-        .map(|(edge_idx, it)| (graph.edge(edge_idx).params.length, it))
+        .map(|(edge_idx, it)| (graph.edge(edge_idx).params.externality(it), it))
         .dot_with_accumulator::<MyDotAccumulator>();
 
     let consumption_inside = cordon_pricing_map.map(|map| {
@@ -453,7 +457,7 @@ fn handle_step_output<Solution>(
             .copied()
             .enumerate()
             .filter(|(edge_idx, _)| map.for_edge(*edge_idx).inside)
-            .map(|(edge_idx, it)| (graph.edge(edge_idx).params.length, it))
+            .map(|(edge_idx, it)| (graph.edge(edge_idx).params.externality(it), it))
             .dot_with_accumulator::<MyDotAccumulator>()
     });
 
@@ -657,6 +661,7 @@ impl TollsStrategy for CarbonPricing {
         for edge_idx in 0..graph.num_edges() {
             let edge = graph.edge_mut(edge_idx);
             edge.params.toll = price * edge.params.length;
+            edge.params.toll_linear = price * edge.params.externality_linear;
         }
     }
 }
@@ -691,7 +696,10 @@ impl CordonPricingMap {
         let mut map = map_new();
         let mut rdr = csv::Reader::from_path(&path).unwrap();
         for result in rdr.deserialize::<CordonEdgeCsvEntry>() {
-            let record = result.expect(&format!("Could not parse cordon map from {}", path.display()));
+            let record = result.expect(&format!(
+                "Could not parse cordon map from {}",
+                path.display()
+            ));
             map.insert(
                 record.edge_id,
                 CordonEdge {

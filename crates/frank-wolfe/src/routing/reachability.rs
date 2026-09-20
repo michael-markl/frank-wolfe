@@ -44,6 +44,8 @@ mod tests {
         let params = EdgeParams {
             mode: LpfMode::C,
             toll: 0.0,
+            toll_linear: 0.0,
+            externality_linear: 0.0,
             offset: 0.0,
             ff_time: 1.0,
             beta: 0.0,

@@ -87,3 +87,20 @@ mkdir -p ./results
     --out_csv results/sioux-falls-carbon-pricing.csv \
     --min_price 0 --max_price 100 --steps 101 --km_per_distance_unit 1.60934 --min_per_time_unit 0.6
 ) 2>&1 | tee results/sioux-falls-carbon-pricing.log
+
+(
+    set -x
+    time cargo run --release -- carbon-pricing --graph "./data/non-convex-braess/non-convex-braess_net.tntp" \
+    --demand "./data/non-convex-braess/non-convex-braess_trips.tntp" --max_iter  500000 \
+    --out_csv results/non-convex-braess-carbon-pricing.csv \
+    --min_price 0 --max_price 20 --steps 101
+) 2>&1 | tee results/sioux-falls-carbon-pricing.log
+
+(
+    set -x
+    time cargo run --release -- carbon-pricing \
+    --graph ./data/non-monotone-braess/non-monotone-braess_net.tntp \
+    --demand ./data/non-monotone-braess/non-monotone-braess_trips.tntp \
+    --out_csv results/non-monotone-braess-carbon-pricing.csv \
+    --min_price 0 --max_price 0.6666666666666667 --steps 101 --rel_gap 1e-9
+) 2>&1 | tee results/non-monotone-braess-carbon-pricing.log

@@ -60,6 +60,8 @@ pub fn read_graph(
             let edge_params = EdgeParams {
                 mode: lpf_mode,
                 toll: 0.0,
+                toll_linear: 0.0,
+                externality_linear: 0.0,
                 offset,
                 ff_time: lpf_param_1,
                 beta: lpf_param_2,
@@ -180,9 +182,7 @@ pub fn write_solution(
             flow / params.capacity
         };
         stmt.bind((3, utilization)).unwrap();
-        let mut no_toll_params = params.clone();
-        no_toll_params.toll = 0.0;
-        let cost = BMWFunction::derivative(&no_toll_params, flow);
+        let cost = BMWFunction::travel_time(params, flow);
         stmt.bind((4, cost)).unwrap();
         let cost_with_toll = BMWFunction::derivative(&params, flow);
         stmt.bind((5, cost_with_toll)).unwrap();
