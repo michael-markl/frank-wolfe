@@ -11,17 +11,26 @@ mkdir -p ./results
     time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
         --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
         --out_csv results/berlin-center-permit-based-cordon.csv --min_price=0 --max_price=10 --min_per_time_unit=0.01666666667 \
-        --max_iter  500000
+        --max_iter  500000 \
         --km_per_distance_unit=0.001 --steps 101 --cordon_edge_map ./berlin-center-cordon-edge-map.csv --permit_based
 ) 2>&1 | tee results/berlin-center-permit-based-cordon.log
+
+(
+    set -x
+    time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
+        --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
+        --out_csv results/berlin-center-min-permits.csv --min_price=1e128 --max_price=1e128 --min_per_time_unit=0.01666666667 \
+        --max_iter  500000 \
+        --km_per_distance_unit=0.001 --steps 1 --cordon_edge_map ./berlin-center-cordon-edge-map.csv --permit_based
+) 2>&1 | tee results/berlin-center-min-permits.log
 
 # EDGE BASED CORDON PRICING
 (
     set -x
     time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
-    --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp"
+    --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
     --out_csv results/berlin-center-edge-based-cordon.csv \
-    --max_iter  500000
+    --max_iter  500000 \
     --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001 \
     --cordon_edge_map ./berlin-center-cordon-edge-map.csv
 ) 2>&1 | tee results/berlin-center-edge-based-cordon.log
@@ -30,11 +39,30 @@ mkdir -p ./results
 (
     set -x
     time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
-        --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp"
+        --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
         --out_csv results/berlin-center-carbon-pricing.csv \
-        --max_iter  500000
+        --max_iter  500000 \
         --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001
 ) 2>&1 | tee results/berlin-center-carbon-pricing.log
+
+(
+    set -x
+    time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
+        --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
+        --out_csv results/berlin-center-min-emission.csv \
+        --max_iter  500000 \
+        --min_price 1e128 --max_price 1e128 --steps 1 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001
+) 2>&1 | tee results/berlin-center-min-emission.log
+
+(
+    set -x
+    time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
+        --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
+        --out_csv results/berlin-center-min-emission-inside.csv \
+        --max_iter 500000 \
+        --min_price 1e128 --max_price 1e128 --steps 1 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001 \
+        --cordon_edge_map ./berlin-center-cordon-edge-map.csv --carbon_pricing_inside
+) 2>&1 | tee results/berlin-center-min-emission-inside.log
 
 (
     set -x
@@ -67,7 +95,7 @@ mkdir -p ./results
 (
     set -x
     time cargo run --release -- carbon-pricing --graph "$NETWORKS/Anaheim/Anaheim_net.tntp" \
-    --demand "$NETWORKS/Anaheim/Anaheim_trips.tntp" --max_iter  500000
+    --demand "$NETWORKS/Anaheim/Anaheim_trips.tntp" --max_iter  500000 \
     --out_csv results/anaheim-carbon-pricing.csv \
     --min_price 0 --max_price 10 --steps 101 --km_per_distance_unit=0.0003048
 ) 2>&1 | tee results/anaheim-carbon-pricing.log
@@ -90,11 +118,19 @@ mkdir -p ./results
 
 (
     set -x
+    time cargo run --release -- carbon-pricing --graph "./data/sioux-falls-net-with-lengths/SiouxFalls_net.tntp" \
+    --demand "$NETWORKS/SiouxFalls/SiouxFalls_trips.tntp" --max_iter  500000 \
+    --out_csv results/sioux-falls-min-emission.csv \
+    --min_price 1e128 --max_price 1e128 --steps 1 --km_per_distance_unit 1.60934 --min_per_time_unit 0.6
+) 2>&1 | tee results/sioux-falls-min-emission.log
+
+(
+    set -x
     time cargo run --release -- carbon-pricing --graph "./data/non-convex-braess/non-convex-braess_net.tntp" \
     --demand "./data/non-convex-braess/non-convex-braess_trips.tntp" --max_iter  500000 \
     --out_csv results/non-convex-braess-carbon-pricing.csv \
     --min_price 0 --max_price 20 --steps 101
-) 2>&1 | tee results/sioux-falls-carbon-pricing.log
+) 2>&1 | tee results/non-convex-braess-carbon-pricing.log
 
 (
     set -x

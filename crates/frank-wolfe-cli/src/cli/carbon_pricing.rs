@@ -63,6 +63,14 @@ pub struct CarbonPricingArgs {
     #[arg(long = "permit_based", default_value_t = false)]
     permit_based: bool,
 
+    /// Price emissions only on edges marked lies_inside in the cordon edge map.
+    #[arg(
+        long = "carbon_pricing_inside",
+        requires = "cordon_edge_map",
+        conflicts_with = "permit_based"
+    )]
+    carbon_pricing_inside: bool,
+
     #[arg(long = "min_price")]
     min_price: Float,
 
@@ -152,7 +160,11 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
 
     let tolls_strategy: Box<dyn TollsStrategy> =
         if let Some(cordon_pricing_map) = &cordon_pricing_map {
-            if !args.permit_based {
+            if args.carbon_pricing_inside {
+                Box::new(CarbonPricing {
+                    inside_map: Some(cordon_pricing_map.clone()),
+                })
+            } else if !args.permit_based {
                 struct EdgeBasedCordonPricing {
                     map: CordonPricingMap,
                 }
@@ -211,7 +223,7 @@ pub fn main_carbon_pricing(args: CarbonPricingArgs) {
                 Box::new(PermitBasedCordonPricing { permit_idx })
             }
         } else {
-            Box::new(CarbonPricing {})
+            Box::new(CarbonPricing { inside_map: None })
         };
 
     let mut csv_writer = if let Some(csv_output_path) = &args.csv_output_path {
@@ -654,14 +666,25 @@ fn compute_solutions_for_price_range_generic<Solution>(
     }
 }
 
-struct CarbonPricing {}
+struct CarbonPricing {
+    inside_map: Option<CordonPricingMap>,
+}
 
 impl TollsStrategy for CarbonPricing {
     fn set_tolls(&self, graph: &mut Graph, price: Float) {
         for edge_idx in 0..graph.num_edges() {
             let edge = graph.edge_mut(edge_idx);
-            edge.params.toll = price * edge.params.length;
-            edge.params.toll_linear = price * edge.params.externality_linear;
+            if self
+                .inside_map
+                .as_ref()
+                .is_none_or(|map| map.for_edge(edge_idx).inside)
+            {
+                edge.params.toll = price * edge.params.length;
+                edge.params.toll_linear = price * edge.params.externality_linear;
+            } else {
+                edge.params.toll = 0.0;
+                edge.params.toll_linear = 0.0;
+            }
         }
     }
 }
