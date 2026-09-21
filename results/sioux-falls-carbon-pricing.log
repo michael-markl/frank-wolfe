@@ -1,8 +1,0 @@
-++ set -x
-++ cargo run --release -- carbon-pricing --graph ../TransportationNetworks/SiouxFalls/SiouxFalls_net.tntp --demand ../TransportationNetworks/SiouxFalls/SiouxFalls_trips.tntp --out results/sioux-falls-carbon-pricing.csv --min_price 0 --max_price 100 --steps 101 --km_per_distance_unit=0.001 --min_per_time_unit 0.01666666667
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/frank-wolfe carbon-pricing --graph ../TransportationNetworks/SiouxFalls/SiouxFalls_net.tntp --demand ../TransportationNetworks/SiouxFalls/SiouxFalls_trips.tntp --out results/sioux-falls-carbon-pricing.csv --min_price 0 --max_price 100 --steps 101 --km_per_distance_unit=0.001 --min_per_time_unit 0.01666666667`
-
-real	1m56,131s
-user	40m49,850s
-sys	8m17,041s

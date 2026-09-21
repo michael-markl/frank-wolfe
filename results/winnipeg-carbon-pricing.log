@@ -1,8 +1,0 @@
-++ set -x
-++ cargo run --release -- carbon-pricing --graph ../TransportationNetworks/Winnipeg/Winnipeg_net.tntp --demand ../TransportationNetworks/Winnipeg/Winnipeg_trips.tntp --out results/winnipeg-carbon-pricing.csv --min_price 0 --max_price 100 --steps 101
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/frank-wolfe carbon-pricing --graph ../TransportationNetworks/Winnipeg/Winnipeg_net.tntp --demand ../TransportationNetworks/Winnipeg/Winnipeg_trips.tntp --out results/winnipeg-carbon-pricing.csv --min_price 0 --max_price 100 --steps 101`
-
-real	0m48,956s
-user	22m59,515s
-sys	0m13,611s

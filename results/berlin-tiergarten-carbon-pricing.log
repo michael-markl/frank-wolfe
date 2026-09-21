@@ -1,8 +1,0 @@
-++ set -x
-++ cargo run --release -- carbon-pricing --graph ../TransportationNetworks/Berlin-Tiergarten/berlin-tiergarten_net.tntp --demand ../TransportationNetworks/Berlin-Tiergarten/berlin-tiergarten_trips.tntp --out results/berlin-tiergarten-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/frank-wolfe carbon-pricing --graph ../TransportationNetworks/Berlin-Tiergarten/berlin-tiergarten_net.tntp --demand ../TransportationNetworks/Berlin-Tiergarten/berlin-tiergarten_trips.tntp --out results/berlin-tiergarten-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001`
-
-real	0m2,153s
-user	0m43,775s
-sys	0m2,776s

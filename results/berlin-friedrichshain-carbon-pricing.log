@@ -1,8 +1,0 @@
-++ set -x
-++ cargo run --release -- carbon-pricing --graph ../TransportationNetworks/Berlin-Friedrichshain/friedrichshain-center_net.tntp --demand ../TransportationNetworks/Berlin-Friedrichshain/friedrichshain-center_trips.tntp --out results/berlin-friedrichshain-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001
-    Finished `release` profile [optimized] target(s) in 0.07s
-     Running `target/release/frank-wolfe carbon-pricing --graph ../TransportationNetworks/Berlin-Friedrichshain/friedrichshain-center_net.tntp --demand ../TransportationNetworks/Berlin-Friedrichshain/friedrichshain-center_trips.tntp --out results/berlin-friedrichshain-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001`
-
-real	0m1,044s
-user	0m16,680s
-sys	0m2,132s

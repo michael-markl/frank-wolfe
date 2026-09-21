@@ -1,8 +1,0 @@
-++ set -x
-++ cargo run --release -- carbon-pricing --graph ../TransportationNetworks/Anaheim/Anaheim_net.tntp --demand ../TransportationNetworks/Anaheim/Anaheim_trips.tntp --out results/anaheim-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --km_per_distance_unit=0.0003048
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/frank-wolfe carbon-pricing --graph ../TransportationNetworks/Anaheim/Anaheim_net.tntp --demand ../TransportationNetworks/Anaheim/Anaheim_trips.tntp --out results/anaheim-carbon-pricing.csv --min_price 0 --max_price 10 --steps 101 --km_per_distance_unit=0.0003048`
-
-real	0m10,577s
-user	4m19,464s
-sys	0m9,210s
