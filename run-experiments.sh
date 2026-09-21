@@ -1,4 +1,4 @@
-NETWORKS="../TransportationNetworks"
+NETWORKS="${NETWORKS-../TransportationNetworks}"
 
 set -x
 
@@ -10,9 +10,9 @@ mkdir -p ./results
     set -x
     time cargo run --release -- carbon-pricing --graph "$NETWORKS/Berlin-Center/berlin-center_net.tntp" \
         --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
-        --out_csv results/berlin-center-permit-based-cordon.csv --min_price=0 --max_price=10 --min_per_time_unit=0.01666666667 \
+        --out_csv results/berlin-center-permit-based-cordon.csv --min_price=0 --max_price=6 --min_per_time_unit=0.01666666667 \
         --max_iter  500000 \
-        --km_per_distance_unit=0.001 --steps 101 --cordon_edge_map ./berlin-center-cordon-edge-map.csv --permit_based
+        --km_per_distance_unit=0.001 --steps 101 --cordon_edge_map ./data/berlin-center-cordon-edge-map.csv --permit_based
 ) 2>&1 | tee results/berlin-center-permit-based-cordon.log
 
 (
@@ -21,7 +21,7 @@ mkdir -p ./results
         --demand "$NETWORKS/Berlin-Center/berlin-center_trips.tntp" \
         --out_csv results/berlin-center-min-permits.csv --min_price=1e128 --max_price=1e128 --min_per_time_unit=0.01666666667 \
         --max_iter  500000 \
-        --km_per_distance_unit=0.001 --steps 1 --cordon_edge_map ./berlin-center-cordon-edge-map.csv --permit_based
+        --km_per_distance_unit=0.001 --steps 1 --cordon_edge_map ./data/berlin-center-cordon-edge-map.csv --permit_based
 ) 2>&1 | tee results/berlin-center-min-permits.log
 
 # EDGE BASED CORDON PRICING
@@ -32,7 +32,7 @@ mkdir -p ./results
     --out_csv results/berlin-center-edge-based-cordon.csv \
     --max_iter  500000 \
     --min_price 0 --max_price 10 --steps 101 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001 \
-    --cordon_edge_map ./berlin-center-cordon-edge-map.csv
+    --cordon_edge_map ./data/berlin-center-cordon-edge-map.csv
 ) 2>&1 | tee results/berlin-center-edge-based-cordon.log
 
 # CARBON PRICING
@@ -61,7 +61,7 @@ mkdir -p ./results
         --out_csv results/berlin-center-min-emission-inside.csv \
         --max_iter 500000 \
         --min_price 1e128 --max_price 1e128 --steps 1 --min_per_time_unit 0.01666666667 --km_per_distance_unit=0.001 \
-        --cordon_edge_map ./berlin-center-cordon-edge-map.csv --carbon_pricing_inside
+        --cordon_edge_map ./data/berlin-center-cordon-edge-map.csv --carbon_pricing_inside
 ) 2>&1 | tee results/berlin-center-min-emission-inside.log
 
 (

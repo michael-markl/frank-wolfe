@@ -10,10 +10,11 @@ Regarding the data on real-world networks, we rely on the well-known collection 
 
 https://github.com/bstabler/TransportationNetworks
 
-Please clone or donwload this repository, preferably as a sibling folder to the one this README lives in.
-
 For the berlin-center network, the relevant data on the Ringbahn cordon is located at ./berlin-center-cordon-edge-map.csv.
 It contains, for every edge, whether it is considered inside or outside the cordon.
+
+For the sioux-falls network, the actually used network with supplied link lengths is located at ./data/sioux-falls-net-with-lengths/SiouxFalls_net.tntp.
+More information is available at ./data/sioux-falls-net-with-lengths/README.md.
 
 ## Prerequisites
 
@@ -24,6 +25,6 @@ To compile the program, a current version of the Rust toolchain is required, see
 
 If you are using Linux or MacOS, you should be able to run the experiments by simply executing the shell script `run-experiments.sh`.
 On Windows, the commands can be copied into Powershell.
-Please replace the $NETWORKS variable with a path to your copy of the TransportationNetworks folder.
+Please set the $NETWORKS variable with a path to your copy of the TransportationNetworks folder.
 
 The output of the experiments is provided in the "results" folder.
